@@ -1,6 +1,8 @@
 # Nothing Engine
 
-A Casimir vacuum friction simulator built on Bogoliubov mode-function evolution coupled to dynamical plate motion.
+A Casimir vacuum friction simulator built on Bogoliubov mode-function evolution coupled to dynamical plate motion. I created this for an experiment to see if quantum vacuum friction was topology-dependent. Releasing this for anyone who wants to use this, or will find it useful.
+
+For the scientific context and results, see [The Geometry of Nothing](https://github.com/mr-gl00m/paper-geometry-of-nothing). (This will be released very soon!)
 
 ## What it does
 
@@ -89,5 +91,4 @@ nothing_engine/
 ```
 
 ## License
-
 MIT
