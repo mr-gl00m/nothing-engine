@@ -89,7 +89,10 @@ nothing_engine/
   config/           # Default parameters & validation criteria
   tests/            # Unit tests
 ```
+## License
+MIT
 
+## Support Me
 If you find this useful, consider supporting me and my research:
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/mr_gl00m)
@@ -99,6 +102,3 @@ If you find this useful, consider supporting me and my research:
 - BTC: `bc1qnedeq3dr2dmlwgmw2mr5mtpxh45uhl395prr0d`
 - ETH: `0x1bCbBa9854dA4Fc1Cb95997D5f42006055282e3c`
 - SOL: `3Wm8wS93UpG2CrZsMWHSspJh7M5gQ6NXBbgLHDFXmAdQ`
-
-## License
-MIT
