@@ -1,0 +1,48 @@
+# Nothing Engine — Validation Gate Criteria
+# All gates must PASS before main experiments.
+
+gate_4_1_static_casimir:
+  description: "Static Casimir energy matches -pi/(24a) within tolerance"
+  track: "B"
+  method: "Compare field energy at t=0 (after zeta regularization) to analytical"
+  tolerance_relative: 0.01      # 1% agreement
+  N_modes_sweep: [64, 128, 256, 512]
+  pass_criterion: "Relative error < tolerance for N >= 256"
+
+gate_4_2_dynamic_casimir:
+  description: "Prescribed-motion DCE photon production rate matches theory"
+  track: "B"
+  method: "Drive plate at Omega = 2*omega_1, extract |beta_1|^2 growth rate"
+  prescribed_amplitude_eps: 1.0e-4
+  N_modes: 64
+  duration_cycles: 50
+  tolerance_relative: 0.05      # 5% agreement on growth rate
+  pass_criterion: "Fitted gamma within 5% of eps*omega_1/2"
+
+gate_4_3_energy_conservation:
+  description: "Closed-system energy conservation"
+  track: "B"
+  method: "Full coupled run, monitor E_total"
+  N_modes: 64
+  duration: 100.0               # Natural time units
+  pass_criterion: "max |E(t) - E(0)| / E_plate(0) < 1e-8"
+
+gate_4_6_adiabatic_limit:
+  description: "Heavy/slow plate creates negligible particles"
+  track: "B"
+  method: "v0 = 1e-6, M = 1e6, run for T=100"
+  N_modes: 64
+  initial_velocity: 1.0e-6
+  plate_mass: 1.0e6
+  duration: 100.0
+  pass_criterion: "Total particle number N(T) < 1e-6"
+  # Compare to resonant case: should be 100x smaller
+
+gate_4_7_residual_baseline:
+  description: "Plate at rest in vacuum shows zero particle creation"
+  track: "B"
+  method: "v0 = 0, evolve for full experimental duration"
+  N_modes: 64
+  initial_velocity: 0.0
+  duration: 100.0
+  pass_criterion: "max |beta_n|^2 < 1e-12 for all n"

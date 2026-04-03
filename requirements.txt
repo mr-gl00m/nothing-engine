@@ -1,0 +1,12 @@
+# Nothing Engine — Dependencies
+# Core
+numpy>=1.24,<2.1
+scipy>=1.11,<1.15
+h5py>=3.9,<4.0
+pyyaml>=6.0,<7.0
+
+# Testing
+pytest>=7.4,<9.0
+
+# Analysis & Visualization (needed for Phase 2+)
+matplotlib>=3.7,<4.0
