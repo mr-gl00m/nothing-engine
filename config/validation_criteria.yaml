@@ -1,0 +1,69 @@
+# Nothing Engine — Validation Gate Criteria
+# Loaded at gate-run time by nothing_engine.config.get_gate_criterion.
+# Editing this file is how you change the thresholds; the validators
+# read these values, they do not hardcode them.
+
+gate_4_1_static_casimir:
+  description: "Static Casimir energy matches -pi/(24a) via exponential-regulator extrapolation"
+  track: "B"
+  method: "Compute E_reg(Lambda) = (pi/2a) sum_n n exp(-n/Lambda), subtract Lambda^2 plate self-energy, extrapolate Lambda->inf and compare to -pi/(24a)."
+  cutoff_scales: [20.0, 40.0, 80.0, 160.0, 320.0]
+  n_modes_truncation: 16384
+  pass_criterion_relative: 1.0e-4
+  pass_criterion_constants_relative: 1.0e-14
+  pass_criterion: "Numerical extrapolation final rel err < 1e-4 AND constants.casimir_energy_1d matches -pi/(24a) exactly"
+
+gate_4_2_dynamic_casimir:
+  description: "Prescribed-motion DCE photon production rate matches theory"
+  track: "B"
+  method: "Drive plate at Omega = 2*omega_1, extract |beta_1|^2 growth rate and compare to eps*omega_1/2"
+  prescribed_amplitude_eps: 1.0e-4
+  N_modes: 64
+  duration_cycles: 50
+  pass_criterion_relative_growth_rate: 0.05
+  pass_criterion: "Fitted gamma within 5% of eps*omega_1/2"
+
+gate_4_3_energy_conservation:
+  description: "Closed-system energy conservation"
+  track: "B"
+  method: |
+    Full coupled run, monitor max |E_total(t) - E_total(0)| / scale, where
+    scale = max(E_plate(0), |E_Casimir(a0)|). Both scales enter the coupled
+    ODE; normalizing by the larger one is what "relative energy drift"
+    physically means. Prior iterations normalized by E_plate alone, which
+    inflates a real ~5e-9 drift out of proportion when E_plate is tiny.
+  N_modes: 32
+  duration: 100.0
+  pass_criterion_relative_to_scale: 1.0e-7
+  # Historical note: the float64 integrator floor at rtol=1e-13/atol=1e-15
+  # with ~60k time points is absolute drift ~5e-9. Against Casimir scale
+  # |E_C| = pi/(24*a0) ~ 0.131 that lands around 4e-8. Threshold 1e-7 gives
+  # factor-2 headroom without hiding real regressions.
+  pass_criterion: "max |E(t) - E(0)| / max(E_plate_0, |E_Casimir|) < 1e-7"
+
+gate_4_6_adiabatic_limit:
+  description: "Heavy/slow plate creates negligible particles"
+  track: "B"
+  method: "v0 = 1e-6, M = 1e6, run for T=100. Confirms the adiabatic theorem."
+  N_modes: 64
+  initial_velocity: 1.0e-6
+  plate_mass: 1.0e6
+  duration: 100.0
+  pass_criterion_total_particles: 1.0e-6
+  pass_criterion: "Total particle number N(T) < 1e-6"
+
+gate_4_7_residual_baseline:
+  description: "Plate at rest in vacuum shows zero particle creation"
+  track: "B"
+  method: |
+    v0 = 0, evolve for full experimental duration. The particle number
+    formula and the Wronskian share the same numerical error source
+    (integrator accumulating on u/v/u_dot/v_dot), so worst-mode |beta_n|^2
+    tracks the Wronskian drift. For N=64 over T=100 with DOP853 at
+    rtol=1e-13/atol=1e-15 this floor is ~3.6e-11, set entirely by float64
+    precision on the highest mode. Threshold 1e-10 sits a factor ~3 above.
+  N_modes: 64
+  initial_velocity: 0.0
+  duration: 100.0
+  pass_criterion_max_beta_sq: 1.0e-10
+  pass_criterion: "max |beta_n|^2 < 1e-10 for all n (float64 integrator floor)"
