@@ -2,7 +2,7 @@
 
 A Casimir vacuum friction simulator built on Bogoliubov mode-function evolution coupled to dynamical plate motion. I created this for an experiment to see if quantum vacuum friction was topology-dependent. Releasing this for anyone who wants to use this, or will find it useful.
 
-For the scientific context and results, see [The Geometry of Nothing](https://github.com/mr-gl00m/paper-geometry-of-nothing). (This will be released very soon!)
+For the scientific context and results, see [The Geometry of Nothing](https://github.com/mr-gl00m/paper-geometry-of-nothing).
 
 ## What it does
 
@@ -31,15 +31,15 @@ pip install -e .
 from nothing_engine.core.bogoliubov import SimulationConfig, run_simulation
 
 config = SimulationConfig(
-    N_modes=64,
+    n_modes=64,
     plate_mass=1e4,
-    initial_velocity=1e-3,
-    cavity_width=1.0,
-    duration=100.0,
+    v0=1e-3,
+    q0=1.0,
+    t_span=(0.0, 100.0),
 )
 
 result = run_simulation(config)
-print(f"Total particles created: {result.particle_number[-1].sum():.6f}")
+print(f"Total particles created at end: {result.total_particle_number_at(-1):.6e}")
 ```
 
 ## Running experiments
@@ -57,6 +57,13 @@ python -m nothing_engine.experiments.run_closed_ringdown
 python -m nothing_engine.experiments.run_open_ringdown
 python -m nothing_engine.experiments.run_convergence
 python -m nothing_engine.experiments.run_topology_comparison
+
+# Phyllotaxis Casimir-graph (v0.2.0 — research-in-progress, see Known limitations)
+python -m nothing_engine.experiments.run_phyllotaxis_graph
+python -m nothing_engine.experiments.val_phyllotaxis_consistency   # Gate P.4 — passes
+python -m nothing_engine.experiments.val_phyllotaxis_relax         # Gate P.3 — fails informatively
+python -m nothing_engine.experiments.plot_phyllotaxis_graph
+python -m nothing_engine.experiments.plot_phyllotaxis_shells
 ```
 
 ## Running tests
@@ -89,6 +96,12 @@ nothing_engine/
   config/           # Default parameters & validation criteria
   tests/            # Unit tests
 ```
+## Known limitations
+
+- **Phyllotaxis Casimir-graph relaxation (gate P.3) does not converge.** The pure 1+1D pair kernel `E_ij = -π/(24 r_ij)` has no repulsive core, so a 2D point cloud under overdamped relaxation collapses — final `max|F|` grows to 1e13–1e20 across all three test lattices. This is a physics result, not a code bug: the kernel is borrowed from a 1+1D parallel-plate calculation and does not regularize on 2D points. The runner and validator are kept in v0.2.0 for reproducibility of the negative result and as the starting point for the kernel study deferred to v0.3 (1/r^3, 1/r^5, 1/r^7 candidates, or a Lennard-Jones-style core).
+- **Phyllotaxis consistency gate (P.4) passes.** Analytic force matches `-∇E` to machine precision (Vogel max relative error 3.55e-8 across three lattices with full pair sum). The graph-construction and force-evaluation code is sound; the open question is which kernel makes the energy landscape physically meaningful on 2D arrangements.
+- **`cli/` package directory.** Intentionally empty in v0.2.0 — will be populated in v0.3 with a `nothing-engine` console command wrapping the existing `python -m` invocations. There is no planned GUI; Nothing Engine is a CLI/library tool by charter.
+
 ## License
 MIT
 
