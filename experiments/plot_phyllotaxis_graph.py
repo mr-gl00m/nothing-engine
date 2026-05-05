@@ -47,7 +47,11 @@ def per_site_forces(points: np.ndarray, r_cut: float) -> np.ndarray:
     return fmag
 
 
-def plot(h5_path: Path, out_path: Path, n_target: int):
+def plot(h5_path: Path, out_path: Path, n_target: int, overwrite: bool = False):
+    if out_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Output file already exists: {out_path}. Pass overwrite=True to replace."
+        )
     with h5py.File(h5_path, "r") as f:
         lattices = {}
         for name in ("vogel", "hex", "square"):
@@ -198,13 +202,14 @@ def main():
         default=None,
         help="Output PNG path (default: data/experiments/phyllotaxis_graph_N{N}.png)",
     )
+    ap.add_argument("--force", action="store_true", help="Overwrite existing output PNG")
     args = ap.parse_args()
 
     h5_path = Path(args.input)
     out_path = Path(args.output) if args.output else Path(
         f"data/experiments/phyllotaxis_graph_N{args.n}.png"
     )
-    plot(h5_path, out_path, args.n)
+    plot(h5_path, out_path, args.n, overwrite=args.force)
 
 
 if __name__ == "__main__":

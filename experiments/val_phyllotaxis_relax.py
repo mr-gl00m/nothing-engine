@@ -37,6 +37,8 @@ import h5py
 from scipy.optimize import minimize
 from scipy.spatial import cKDTree
 
+from nothing_engine.experiments._atomic_h5 import atomic_h5_write
+
 
 def total_energy_full(points: np.ndarray) -> float:
     n = points.shape[0]
@@ -170,6 +172,7 @@ def run(
     gtol: float,
     maxiter: int,
     out_h5: Path,
+    overwrite: bool = False,
 ) -> None:
     print(f"P.3 relaxation gate  (N = {n_target}, pin_fraction = {pin_fraction})")
     print("=" * 100)
@@ -209,8 +212,7 @@ def run(
         )
 
     # Write relaxed configurations for downstream plotting
-    out_h5.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(h5_path, "r") as fin, h5py.File(out_h5, "w") as fout:
+    with h5py.File(h5_path, "r") as fin, atomic_h5_write(out_h5, overwrite=overwrite) as fout:
         for name, r in results.items():
             grp = fout.create_group(f"{name}_relaxed_N{n_target}")
             grp.create_dataset("points_initial", data=fin[f"{name}_N{n_target}"]["points"][:])
@@ -273,12 +275,16 @@ def main():
     )
     ap.add_argument("--gtol", type=float, default=1e-7)
     ap.add_argument("--maxiter", type=int, default=5000)
+    ap.add_argument("--force", action="store_true", help="Overwrite existing output HDF5")
     args = ap.parse_args()
 
     out_h5 = Path(args.output) if args.output else Path(
         f"data/experiments/phyllotaxis_relaxed_N{args.n}.h5"
     )
-    run(Path(args.input), args.n, args.pin_fraction, args.gtol, args.maxiter, out_h5)
+    run(
+        Path(args.input), args.n, args.pin_fraction, args.gtol, args.maxiter, out_h5,
+        overwrite=args.force,
+    )
 
 
 if __name__ == "__main__":

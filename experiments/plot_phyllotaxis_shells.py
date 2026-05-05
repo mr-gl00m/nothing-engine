@@ -76,7 +76,11 @@ def shell_bin(
     return centers, mean, std, count
 
 
-def plot(h5_path: Path, out_path: Path, n_target: int, n_bins: int = 40):
+def plot(h5_path: Path, out_path: Path, n_target: int, n_bins: int = 40, overwrite: bool = False):
+    if out_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"Output file already exists: {out_path}. Pass overwrite=True to replace."
+        )
     with h5py.File(h5_path, "r") as f:
         data = {}
         for name in ("vogel", "hex", "square"):
@@ -192,13 +196,14 @@ def main():
     ap.add_argument("--bins", type=int, default=50)
     ap.add_argument("--input", type=str, default="data/experiments/phyllotaxis_graph.h5")
     ap.add_argument("--output", type=str, default=None)
+    ap.add_argument("--force", action="store_true", help="Overwrite existing output PNG")
     args = ap.parse_args()
 
     h5_path = Path(args.input)
     out_path = Path(args.output) if args.output else Path(
         f"data/experiments/phyllotaxis_shells_N{args.n}.png"
     )
-    plot(h5_path, out_path, args.n, n_bins=args.bins)
+    plot(h5_path, out_path, args.n, n_bins=args.bins, overwrite=args.force)
 
 
 if __name__ == "__main__":

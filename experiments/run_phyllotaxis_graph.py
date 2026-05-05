@@ -25,13 +25,15 @@ Usage:
 
 from __future__ import annotations
 
-import sys
+import argparse
 import time
 from pathlib import Path
 
 import numpy as np
 import h5py
 from scipy.spatial import cKDTree
+
+from nothing_engine.experiments._atomic_h5 import atomic_h5_write
 
 GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))  # ~137.507764 degrees
 
@@ -192,8 +194,15 @@ def analyze(name: str, points: np.ndarray, r_cut_scale: float = 4.0) -> dict:
     }
 
 
-def save_hdf5(out_path: Path, density: float, r_cut_scale: float, rows: list[dict], lattices: dict):
-    with h5py.File(out_path, "w") as f:
+def save_hdf5(
+    out_path: Path,
+    density: float,
+    r_cut_scale: float,
+    rows: list[dict],
+    lattices: dict,
+    overwrite: bool = False,
+):
+    with atomic_h5_write(out_path, overwrite=overwrite) as f:
         f.attrs["density"] = density
         f.attrs["r_cut_scale"] = r_cut_scale
         for row in rows:
@@ -257,8 +266,12 @@ def print_ratios(rows: list[dict]):
 
 
 def main():
-    quick = "--quick" in sys.argv
-    n_values = [200, 800] if quick else [200, 800, 3200]
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--quick", action="store_true", help="Skip the N=3200 sweep")
+    ap.add_argument("--force", action="store_true", help="Overwrite existing output HDF5")
+    args = ap.parse_args()
+
+    n_values = [200, 800] if args.quick else [200, 800, 3200]
     density = 1.0
     r_cut_scale = 4.0
 
@@ -292,7 +305,7 @@ def main():
                 flush=True,
             )
 
-    save_hdf5(out_path, density, r_cut_scale, rows, lattices)
+    save_hdf5(out_path, density, r_cut_scale, rows, lattices, overwrite=args.force)
     print_table(rows)
     print_ratios(rows)
     print(f"\nResults saved to: {out_path}")
