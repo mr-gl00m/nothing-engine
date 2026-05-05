@@ -1,0 +1,47 @@
+# Nothing Engine — Default Physical Parameters
+# All values in natural units (hbar = c = 1) unless noted.
+
+physics:
+  cavity_width_a0: 1.0          # Initial cavity width (reference length scale)
+  plate_mass_M: 1.0e4           # Plate mass (heavy = adiabatic regime)
+  spring_k: 0.0                 # Spring constant (0 = free plate)
+  initial_velocity_v0: 1.0e-3   # Initial plate velocity (non-relativistic: v0/c = 1e-3)
+  x_left: 0.0                   # Fixed left plate position
+
+modes:
+  N_modes: 256                  # Number of cavity modes (UV cutoff)
+  # omega_max = N_modes * pi / a0 ~ 804 for default params
+
+integrator:
+  method: "RK45"                # scipy.integrate.solve_ivp method
+  rtol: 1.0e-10                 # Relative tolerance
+  atol: 1.0e-12                 # Absolute tolerance
+  max_step: 0.01                # Must resolve highest mode: period ~ 2*a0/(N*c) ~ 0.0078
+  # Solve duration set per-experiment, not here
+
+energy_audit:
+  enabled: true
+  tolerance_mode: "absolute"    # "absolute" or "relative"
+  # Absolute tolerance scaled to plate energy, NOT total energy.
+  # Vacuum energy ~ N^2 dwarfs plate energy; relative tolerance is useless.
+  tolerance_factor: 1.0e-6      # |E(t) - E(0)| < factor * E_plate(0)
+  halt_on_violation: true
+
+checkpoint:
+  enabled: true
+  interval_cycles: 10000        # Save full state every N cavity crossing times
+  output_dir: "data/experiments"
+  format: "hdf5"
+
+output:
+  samples_per_cycle: 8          # Minimum 8 samples per plate oscillation cycle
+  quantities:
+    - plate_q
+    - plate_v
+    - particle_number_per_mode
+    - total_particle_number
+    - E_plate
+    - E_spring
+    - E_field
+    - E_total
+    - force_field
