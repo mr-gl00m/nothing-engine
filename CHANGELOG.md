@@ -2,9 +2,24 @@
 
 All notable changes to Nothing Engine are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] — 2026-05-05
+## [0.2.1] — 2026-05-05
 
-Honest-snapshot release. Adds the phyllotaxis Casimir-graph extension and discloses one of its validation gates as a documented physics failure. Also lands the atomic-write fixes from the 2026-05-05 red-team pass (see Security).
+Patch release. Closes the four findings from the 2026-05-05 red-team pass on the v0.2.0 phyllotaxis pipeline. No API changes; default behavior on the four phyllotaxis scripts now refuses to clobber existing output (use `--force` to opt in).
+
+### Added
+- `nothing_engine/experiments/_atomic_h5.py` — internal helper exposing `atomic_h5_write(dst, overwrite=False)`. Mirrors the publish semantics of `runner._atomic_replace` / `runner._create_output_file`.
+- `nothing_engine/tests/test_phyllotaxis_runner_atomic.py` — regression tests pinning the helper invariants and the real `save_hdf5` entry point against the mid-write and clobber narratives. Suite total: 54 passing, 1 skipped (was 48 / 1).
+
+### Fixed
+- `experiments/run_phyllotaxis_graph.save_hdf5` and `experiments/val_phyllotaxis_relax.run` now write through the atomic helper. A SIGINT or crash mid-write no longer destroys the prior valid output. (RT-2026-05-05-001, RT-2026-05-05-002)
+- All four phyllotaxis scripts (`run_phyllotaxis_graph`, `val_phyllotaxis_relax`, `plot_phyllotaxis_graph`, `plot_phyllotaxis_shells`) gained a `--force` flag. Default behavior refuses to clobber an existing output file, matching `runner._create_output_file`. (RT-2026-05-05-003)
+
+### Security
+- `.gitignore` archive pattern broadened from the literal `nothing_engine.rar` to the glob `nothing_engine*.rar`, catching versioned snapshots like `nothing_engine_v0.2.0.rar` on `git add .`. (RT-2026-05-05-004)
+
+## [0.2.0] — 2026-04-26
+
+Honest-snapshot release. Adds the phyllotaxis Casimir-graph extension and discloses one of its validation gates as a documented physics failure.
 
 ### Added
 - `experiments/run_phyllotaxis_graph.py` — Casimir-graph runner over Vogel and shell phyllotaxis lattices.
@@ -23,13 +38,6 @@ Honest-snapshot release. Adds the phyllotaxis Casimir-graph extension and disclo
 
 ### Removed
 - `nothing_engine/gui/` — empty package directory removed. Nothing Engine is a CLI/library tool by charter; there is no planned GUI.
-
-### Security
-- New `nothing_engine/experiments/_atomic_h5.py` shared helper exposes `atomic_h5_write(dst, overwrite=False)` — opens `<dst>.tmp`, publishes via `os.replace` on clean exit, removes the partial temp on exception. Refuses to clobber an existing destination unless `overwrite=True`. Matches the publish semantics of `runner._atomic_replace` / `runner._create_output_file`.
-- `experiments/run_phyllotaxis_graph.save_hdf5` and `experiments/val_phyllotaxis_relax.run` go through the helper. A SIGINT or crash mid-write no longer destroys the prior valid output. (RT-2026-05-05-001, RT-2026-05-05-002)
-- `--force` argparse flag added to all four phyllotaxis scripts (`run_phyllotaxis_graph`, `val_phyllotaxis_relax`, `plot_phyllotaxis_graph`, `plot_phyllotaxis_shells`). Default behavior now refuses to clobber an existing output file. (RT-2026-05-05-003)
-- `.gitignore` snapshot-archive pattern broadened from the literal `nothing_engine.rar` to the glob `nothing_engine*.rar`, so versioned snapshots like `nothing_engine_v0.2.0.rar` are caught by `git add .`. (RT-2026-05-05-004)
-- New regression test module `tests/test_phyllotaxis_runner_atomic.py` pins the helper invariants and the real `save_hdf5` entry point against the mid-write and clobber narratives. Suite total: 54 passing, 1 skipped (was 48 / 1).
 
 ### Known Issues
 - **Gate P.3 fails by design of the test, not a code defect.** Overdamped relaxation under `E_ij = -π/(24 r_ij)` collapses on all three test lattices (final `max|F|` = 1e13 to 1e20). The pure 1+1D parallel-plate pair kernel has no repulsive core, so on a 2D point arrangement no local energy minimum exists — collapse is the correct answer for that kernel. The runner and validator are retained in v0.2.0 for reproducibility of the negative result and as the launching point for the v0.3 kernel study (1/r^3, 1/r^5, 1/r^7 candidates, or a Lennard-Jones-style core). Gates P.1 and P.2 are deferred behind that kernel decision.

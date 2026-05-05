@@ -103,7 +103,7 @@ nothing_engine/
 - **`cli/` package directory.** Intentionally empty in v0.2.0 — will be populated in v0.3 with a `nothing-engine` console command wrapping the existing `python -m` invocations. There is no planned GUI; Nothing Engine is a CLI/library tool by charter.
 
 ## License
-[MIT](./LICENSE). Copyright © 2026 Nathan Seals / Nexus Labs
+MIT
 
 ## Support Me
 If you find this useful, consider supporting me and my research:
