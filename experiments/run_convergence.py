@@ -40,7 +40,7 @@ def run_single(n_modes, total_time=5000.0):
         total_time=total_time,
         segment_time=500.0,
         samples_per_unit_time=8,
-        checkpoint_interval=1000.0,  # intermediate checkpoints for crash safety
+        checkpoint_interval=total_time,  # single checkpoint at end
         log_interval_segments=5,
     )
     output_path = f"data/experiments/convergence_N{n_modes}.h5"
@@ -93,11 +93,9 @@ def analyze_results(paths):
 
 
 def main():
-    mode_counts = [32, 64, 128, 256]
+    mode_counts = [32, 64, 128]
     if "--extended" in sys.argv:
-        mode_counts = [32, 64, 128, 256, 512]
-    elif "--quick" in sys.argv:
-        mode_counts = [32, 64, 128]
+        mode_counts = [16, 32, 64, 128, 256]
 
     paths = []
     for n in mode_counts:

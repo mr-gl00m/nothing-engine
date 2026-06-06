@@ -14,6 +14,11 @@ Usage:
     python -m nothing_engine.experiments.run_topology_v2 [--quick]
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype),
+# so correct dataset usage in this I/O glue trips the type checker. Suppress those
+# stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportOperatorIssue=false, reportAttributeAccessIssue=false, reportCallIssue=false
+
 import sys
 import logging
 from pathlib import Path
@@ -21,9 +26,7 @@ from pathlib import Path
 import numpy as np
 import h5py
 
-from nothing_engine.core.bogoliubov import (
-    SimulationConfig, PrecomputedArrays, build_initial_state,
-)
+from nothing_engine.core.bogoliubov import SimulationConfig, build_initial_state
 from nothing_engine.core import mode_space, energy as energy_mod
 from nothing_engine.experiments.runner import ExperimentRunner, RunConfig
 
@@ -87,6 +90,9 @@ def make_configs(n_modes: int, total_time: float, tag: str):
 
 def analyze_run(path: str, sim_cfg: SimulationConfig, label: str):
     """Extract key observables from a completed run."""
+    import os
+    os.environ['HDF5_USE_FILE_LOCKING'] = 'FALSE'
+
     with h5py.File(path, 'r') as f:
         t = f['timeseries']['t'][:]
         e_plate = f['timeseries']['E_plate'][:]
@@ -96,10 +102,12 @@ def analyze_run(path: str, sim_cfg: SimulationConfig, label: str):
         n_part = f['timeseries']['total_particles'][:]
         q_arr = f['timeseries']['plate_q'][:]
         v_arr = f['timeseries']['plate_v'][:]
+
+    # Also compute from final checkpoint for Wronskian check
+    with h5py.File(path, 'r') as f:
         ckpts = sorted(f['checkpoints'].keys())
         state = f['checkpoints'][ckpts[-1]]['state'][:]
 
-    pre = PrecomputedArrays.from_config(sim_cfg)
     idx = 4 * sim_cfg.n_modes
     ms_final = state[:idx]
     w = mode_space.wronskian(ms_final, sim_cfg.n_modes)
@@ -109,7 +117,7 @@ def analyze_run(path: str, sim_cfg: SimulationConfig, label: str):
     q_final = state[idx]
     a_final = q_final - sim_cfg.x_left
     pn_final = mode_space.particle_number(ms_final, sim_cfg.n_modes, a_final,
-                                           pre.g_n, pre.ns_pi)
+                                           sim_cfg.g_n, sim_cfg.ns_pi)
     n_total_final = float(np.sum(pn_final))
     n_positive = float(np.sum(np.maximum(pn_final, 0)))
 
@@ -198,22 +206,20 @@ def main():
         configs = make_configs(n_modes, total_time, tag)
 
         for label, sim_cfg, run_cfg, output_path in configs:
-            pre = PrecomputedArrays.from_config(sim_cfg)
             e0 = 0.5 * sim_cfg.plate_mass * sim_cfg.v0**2
             a0 = sim_cfg.q0 - sim_cfg.x_left
-            omega1 = pre.ns_pi[0] / a0
+            omega1 = sim_cfg.ns_pi[0] / a0
             print("=" * 60)
             print(f"  {label.upper()} | N={sim_cfg.n_modes} | q0={sim_cfg.q0}")
             print(f"  omega_1 = {omega1:.4f}, k={sim_cfg.spring_k:.4f}")
             print(f"  E_plate(0) = {e0:.6e}")
-            print(f"  cutoff: {sim_cfg.cutoff_shape}, n_cutoff={pre.n_cutoff}")
+            print(f"  cutoff: {sim_cfg.cutoff_shape}, n_cutoff={sim_cfg.n_cutoff}")
             mid = min(99, sim_cfg.n_modes - 1)
-            print(f"  g_n[1]={pre.g_n[0]:.4f}, g_n[{mid+1}]={pre.g_n[mid]:.4f}, g_n[-1]={pre.g_n[-1]:.2e}")
+            print(f"  g_n[1]={sim_cfg.g_n[0]:.4f}, g_n[{mid+1}]={sim_cfg.g_n[mid]:.4f}, g_n[-1]={sim_cfg.g_n[-1]:.2e}")
             print(f"  Output: {output_path}")
             print("=" * 60)
 
-            runner = ExperimentRunner(sim_cfg, run_cfg,
-                                      output_path=output_path, overwrite=True)
+            runner = ExperimentRunner(sim_cfg, run_cfg, output_path=output_path)
             runner.run()
             print(f"  Done -> {output_path}")
             print()

@@ -11,11 +11,15 @@ These tests verify:
 
 import numpy as np
 import pytest
+import sys
+import os
 
-from nothing_engine.core import mode_space
-from nothing_engine.core import energy as energy_mod
-from nothing_engine.core.bogoliubov import (
-    SimulationConfig, SimulationResult, PrecomputedArrays,
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from core import mode_space
+from core import energy as energy_mod
+from core.bogoliubov import (
+    SimulationConfig, SimulationResult,
     pack_state, unpack_state, build_initial_state,
     make_rhs, run_simulation, audit_result,
 )
@@ -39,20 +43,18 @@ class TestStatePacking:
     def test_state_dimension(self):
         for N in [1, 10, 64, 256]:
             cfg = SimulationConfig(n_modes=N, t_span=(0, 1))
-            pre = cfg.precompute()
-            y0 = build_initial_state(cfg, pre)
+            y0 = build_initial_state(cfg)
             assert y0.shape == (4 * N + 2,)
 
     def test_initial_state_vacuum(self):
-        """Initial mode state has zero particles under the same form-factor convention the IC uses."""
+        """Initial mode state has zero particles."""
         N = 32
         cfg = SimulationConfig(n_modes=N, q0=1.0, v0=0.01, t_span=(0, 1))
-        pre = cfg.precompute()
-        y0 = build_initial_state(cfg, pre)
+        y0 = build_initial_state(cfg)
         ms, q, v = unpack_state(y0, N)
         a0 = q - cfg.x_left
-        beta_sq = mode_space.particle_number(ms, N, a0, pre.g_n, pre.ns_pi)
-        np.testing.assert_allclose(beta_sq, 0.0, atol=1e-14)
+        beta_sq = mode_space.particle_number(ms, N, a0, cfg.g_n, cfg.ns_pi)
+        np.testing.assert_allclose(beta_sq, 0.0, atol=1e-15)
         assert q == cfg.q0
         assert v == cfg.v0
 
@@ -90,12 +92,14 @@ class TestStaticPlate:
             return 0.0
 
         result = run_simulation(cfg, prescribed_motion=(q_const, v_zero))
-        pre = result.precomputed
 
         # Check particle number at multiple time points
         for i in [0, len(result.t) // 4, len(result.t) // 2, -1]:
             ms = result.mode_state_at(i)
-            beta_sq = mode_space.particle_number(ms, N, a0, pre.g_n, pre.ns_pi)
+            beta_sq = mode_space.particle_number(ms, N, a0, cfg.g_n, cfg.ns_pi)
+            # Threshold 1e-10: numerical noise from high-n modes accumulates
+            # in the particle number formula (small difference of O(1) terms).
+            # This is integrator error, not physics.
             assert np.max(np.abs(beta_sq)) < 1e-10, \
                 f"Particles created at t={result.t[i]:.2f}: max |beta|^2 = {np.max(np.abs(beta_sq)):.2e}"
 
@@ -216,14 +220,13 @@ class TestDynamicCasimirEffect:
             return eps * Omega * np.cos(Omega * t)
 
         result = run_simulation(cfg, prescribed_motion=(q_func, v_func))
-        pre = result.precomputed
 
         # Extract |beta_1|^2 over time
         beta1_sq = []
         for i in range(len(result.t)):
             ms = result.mode_state_at(i)
             a = q_func(result.t[i]) - cfg.x_left
-            pn = mode_space.particle_number(ms, N, a, pre.g_n, pre.ns_pi)
+            pn = mode_space.particle_number(ms, N, a)
             beta1_sq.append(pn[0])  # mode 1
 
         beta1_sq = np.array(beta1_sq)
@@ -235,7 +238,7 @@ class TestDynamicCasimirEffect:
         # Check that mode 1 dominates (resonance selectivity)
         ms_final = result.mode_state_at(-1)
         a_final = q_func(result.t[-1]) - cfg.x_left
-        pn_final = mode_space.particle_number(ms_final, N, a_final, pre.g_n, pre.ns_pi)
+        pn_final = mode_space.particle_number(ms_final, N, a_final)
         assert pn_final[0] > 10 * np.max(pn_final[2:]), \
             "Mode 1 should dominate for 2*omega_1 driving"
 
@@ -265,68 +268,22 @@ class TestAdiabaticLimit:
             f"Adiabatic limit violated: N_total = {total_N:.2e}"
 
 
-class TestFormFactorTracking:
-    def test_default_flag_is_false(self):
-        """Default preserves historical behavior (g_n fixed at a0)."""
-        cfg = SimulationConfig()
-        assert cfg.form_factor_tracks_plate is False
-
-    def test_tracking_run_matches_static_when_plate_does_not_move(self):
-        """Flag is opt-in; with v0=0 and k=0 the plate sits at q0 and
-        the tracked g_n must equal the static g_n to high precision."""
-        base_kwargs = dict(
-            n_modes=16, plate_mass=1e4, spring_k=0.0, q0=1.0,
-            v0=0.0, t_span=(0.0, 5.0), rtol=1e-12, atol=1e-14,
-            max_step=0.005, audit_halt=False,
-        )
-        cfg_static = SimulationConfig(**base_kwargs, form_factor_tracks_plate=False)
-        cfg_track = SimulationConfig(**base_kwargs, form_factor_tracks_plate=True)
-        r_static = run_simulation(cfg_static)
-        r_track = run_simulation(cfg_track)
-        # Static plate => same trajectory from both RHS branches.
-        np.testing.assert_allclose(
-            r_static.y[:, -1], r_track.y[:, -1], rtol=1e-10, atol=1e-12,
-            err_msg="Tracking flag must not disturb a static-plate run",
-        )
-
-    def test_tracking_changes_force_when_plate_moves(self):
-        """With a real plate motion the tracking branch produces a
-        different force (sanity: the two branches are not aliases)."""
-        t_eval = np.linspace(0.0, 10.0, 51)
-        base_kwargs = dict(
-            n_modes=32, plate_mass=1e2, spring_k=0.0, q0=1.0,
-            v0=5e-2, t_span=(0.0, 10.0), t_eval=t_eval,
-            rtol=1e-10, atol=1e-12,
-            plate_thickness=0.02,  # modest cutoff that will move with a
-            audit_halt=False,
-        )
-        r_static = run_simulation(SimulationConfig(**base_kwargs, form_factor_tracks_plate=False))
-        r_track = run_simulation(SimulationConfig(**base_kwargs, form_factor_tracks_plate=True))
-        # Plate trajectories should differ once g_n depends on a(t).
-        diff = np.max(np.abs(r_static.plate_q - r_track.plate_q))
-        assert diff > 1e-8, (
-            f"Tracking flag produced identical trajectory; expected divergence. max_diff={diff:.2e}"
-        )
-
-
 class TestEquilibrium:
     def test_free_plate_q_eq(self):
         """For k=0, q_eq = q0."""
         cfg = SimulationConfig(spring_k=0.0, q0=1.5, t_span=(0, 1))
-        assert cfg.precompute().q_eq == 1.5
+        assert cfg.q_eq == 1.5
 
-    @pytest.mark.skip(
-        reason="Physics decision: spring anchor q_eq is fixed at q0 rather than "
-               "absorbing the unphysical truncated vacuum force. Revisit when "
-               "RT-009 (catastrophic cancellation) is resolved."
-    )
-    def test_spring_equilibrium_offset(self):
-        """For k>0, q_eq shifts to balance truncated Casimir force."""
+    def test_spring_rest_length_is_q0(self):
+        """q_eq is the spring rest length, which equals q0 for any k.
+
+        Under renormalization the field force F_field = F_raw - F_vac is zero at the
+        vacuum state, so q0 is already the mechanical equilibrium and no offset is
+        applied. The un-renormalized truncated vacuum force (~N^2) does NOT enter q_eq;
+        an earlier version of this test wrongly expected q0 + F_trunc/k (BH-2026-06-03-003).
+        """
         N = 32
         k = 100.0
         q0 = 1.0
         cfg = SimulationConfig(n_modes=N, spring_k=k, q0=q0, t_span=(0, 1))
-        from nothing_engine.core.radiation_pressure import static_casimir_force_truncated
-        F_trunc = static_casimir_force_truncated(N, q0)
-        expected_q_eq = q0 + F_trunc / k
-        np.testing.assert_allclose(cfg.precompute().q_eq, expected_q_eq, rtol=1e-12)
+        assert cfg.q_eq == q0

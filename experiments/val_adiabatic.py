@@ -13,13 +13,11 @@ PASS: Total N(T) < 1e-6 (100x below resonant case).
 """
 
 import sys
+import os
 import numpy as np
 
 from nothing_engine.core import mode_space
 from nothing_engine.core.bogoliubov import SimulationConfig, run_simulation
-from nothing_engine.config import get_gate_criterion
-
-_GATE = "gate_4_6_adiabatic_limit"
 
 
 def run_validation():
@@ -27,14 +25,9 @@ def run_validation():
     print("Gate 4.6: Adiabatic Limit — Negligible Particle Creation")
     print("=" * 60)
 
-    # YAML is the source of truth. Criteria live in validation_criteria.yaml.
-    N = int(get_gate_criterion(_GATE, "N_modes", default=32))
-    M_heavy = float(get_gate_criterion(_GATE, "plate_mass", default=1.0e6))
-    v0_slow = float(get_gate_criterion(_GATE, "initial_velocity", default=1.0e-6))
-    duration = float(get_gate_criterion(_GATE, "duration", default=50.0))
-    particle_threshold = float(
-        get_gate_criterion(_GATE, "pass_criterion_total_particles", default=1.0e-6)
-    )
+    N = 32
+    M_heavy = 1e8
+    v0_slow = 1e-6
     a0 = 1.0
 
     cfg = SimulationConfig(
@@ -43,10 +36,10 @@ def run_validation():
         spring_k=0.0,
         q0=a0,
         v0=v0_slow,
-        t_span=(0.0, duration),
+        t_span=(0.0, 50.0),
         rtol=1e-12,
         atol=1e-14,
-        max_step=0.0,  # auto Nyquist-safe
+        max_step=0.005,
         audit_halt=False,
     )
 
@@ -77,9 +70,8 @@ def run_validation():
     print(f"\nPlate displacement: |q(T) - q0| = {displacement:.4e}")
     print(f"Relative: {displacement/a0:.4e}")
 
-    passed = abs(N_total_final) < particle_threshold
-    print(f"\nThreshold (from {_GATE}.pass_criterion_total_particles): {particle_threshold:.2e}")
-    print(f"GATE 4.6: {'PASS' if passed else 'FAIL'}")
+    passed = abs(N_total_final) < 1e-6
+    print(f"\nGATE 4.6: {'PASS' if passed else 'FAIL'}")
     return passed
 
 

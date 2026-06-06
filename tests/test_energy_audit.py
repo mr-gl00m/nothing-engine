@@ -2,8 +2,12 @@
 
 import numpy as np
 import pytest
+import sys
+import os
 
-from nothing_engine.core.energy_audit import PhysicalIntegrityError, EnergyAuditor
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from core.energy_audit import PhysicalIntegrityError, EnergyAuditor
 
 
 class TestPhysicalIntegrityError:

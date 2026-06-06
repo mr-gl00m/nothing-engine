@@ -11,6 +11,11 @@ Usage:
     python -m experiments.run_analysis [--closed PATH] [--open PATH] [--no-plots]
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype),
+# so correct dataset indexing in this I/O glue trips the type checker. Suppress
+# those stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportOperatorIssue=false
+
 import sys
 import argparse
 import logging
@@ -107,7 +112,7 @@ def _make_plots(hdf5_path, label, t, e_plate, fit_results,
     ax.set_ylabel("E_plate")
     ax.set_title(f"Ringdown: {label}")
     ax.legend()
-    fig.savefig(out_dir / f"{prefix}_ringdown.png", dpi=150, bbox_inches="tight")
+    fig.savefig(str(out_dir / f"{prefix}_ringdown.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {out_dir / f'{prefix}_ringdown.png'}")
 
@@ -148,7 +153,7 @@ def _make_plots(hdf5_path, label, t, e_plate, fit_results,
 
     fig.suptitle(label, fontsize=14)
     fig.tight_layout()
-    fig.savefig(out_dir / f"{prefix}_dashboard.png", dpi=150, bbox_inches="tight")
+    fig.savefig(str(out_dir / f"{prefix}_dashboard.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {out_dir / f'{prefix}_dashboard.png'}")
 

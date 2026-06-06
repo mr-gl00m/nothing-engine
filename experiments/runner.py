@@ -16,97 +16,31 @@ Restart from checkpoint:
     runner.run()
 """
 
-import os
+# h5py ships loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype), so
+# correct dataset/attr usage in this I/O glue trips the type checker. Suppress
+# those stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportOperatorIssue=false, reportAttributeAccessIssue=false, reportFunctionMemberAccess=false
+
 import time
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 import h5py
 from numpy.typing import NDArray
 
 from nothing_engine.core.bogoliubov import (
-    SimulationConfig, SimulationResult, PrecomputedArrays,
+    SimulationConfig, SimulationResult,
     build_initial_state, pack_state, unpack_state,
-    make_rhs, _make_cavity_collapse_event, _make_nonfinite_event,
+    make_rhs, _make_cavity_collapse_event,
 )
 from nothing_engine.core import energy as energy_mod
 from nothing_engine.core import mode_space
 from scipy.integrate import solve_ivp
 
 logger = logging.getLogger(__name__)
-
-# All fields of SimulationConfig that must survive the HDF5 round trip.
-# Anything derived (ns, ns_pi, g_n, q_eq, ...) is rebuilt via
-# PrecomputedArrays.from_config and must NOT be persisted under this key.
-_CONFIG_FIELDS: tuple = (
-    "n_modes", "plate_mass", "spring_k", "q0", "v0", "x_left",
-    "boundary", "plate_thickness", "cutoff_shape", "form_factor_tracks_plate",
-    "method", "rtol", "atol", "max_step",
-    "audit_tolerance_factor", "audit_halt",
-)
-
-
-def _atomic_replace(src: Path, dst: Path) -> None:
-    """Cross-platform atomic replace.
-
-    ``os.replace`` is atomic on POSIX and provides the same semantics on
-    Windows for files on the same volume. Callers must ensure ``src`` is
-    fully flushed and closed before invoking this.
-    """
-    os.replace(str(src), str(dst))
-
-
-def _store_config_attrs(cfg_grp: h5py.Group, sim_cfg: SimulationConfig,
-                        run_cfg: "RunConfig") -> None:
-    """Persist the full SimulationConfig plus RunConfig onto an HDF5 group.
-
-    Every declared field of SimulationConfig is written. Derived fields
-    are intentionally omitted — they are recomputed on restore. ``t_span``
-    and ``t_eval`` are runtime-only and not persisted either.
-    """
-    for name in _CONFIG_FIELDS:
-        value = getattr(sim_cfg, name)
-        cfg_grp.attrs[name] = value
-    cfg_grp.attrs["total_time"] = run_cfg.total_time
-    cfg_grp.attrs["segment_time"] = run_cfg.segment_time
-    cfg_grp.attrs["samples_per_unit_time"] = run_cfg.samples_per_unit_time
-    cfg_grp.attrs["checkpoint_interval"] = run_cfg.checkpoint_interval
-
-
-def _load_config_attrs(cfg_grp: h5py.Group) -> "tuple[SimulationConfig, RunConfig]":
-    """Reconstruct a SimulationConfig + RunConfig from HDF5 attrs.
-
-    Round-trip counterpart of :func:`_store_config_attrs`. Missing fields
-    fall back to dataclass defaults so that files written before a new
-    field was added remain readable.
-    """
-    kwargs = {}
-    defaults = SimulationConfig()
-    for name in _CONFIG_FIELDS:
-        if name in cfg_grp.attrs:
-            raw = cfg_grp.attrs[name]
-            default = getattr(defaults, name)
-            if isinstance(default, bool):
-                kwargs[name] = bool(raw)
-            elif isinstance(default, int) and not isinstance(default, bool):
-                kwargs[name] = int(raw)
-            elif isinstance(default, float):
-                kwargs[name] = float(raw)
-            elif isinstance(default, str):
-                kwargs[name] = raw.decode() if isinstance(raw, bytes) else str(raw)
-            else:
-                kwargs[name] = raw
-    sim_cfg = SimulationConfig(**kwargs)
-    run_cfg = RunConfig(
-        total_time=float(cfg_grp.attrs["total_time"]),
-        segment_time=float(cfg_grp.attrs["segment_time"]),
-        samples_per_unit_time=int(cfg_grp.attrs["samples_per_unit_time"]),
-        checkpoint_interval=float(cfg_grp.attrs["checkpoint_interval"]),
-    )
-    return sim_cfg, run_cfg
 
 
 @dataclass
@@ -125,23 +59,21 @@ class RunConfig:
 
 
 def _create_output_file(path: Path, sim_cfg: SimulationConfig,
-                        run_cfg: RunConfig, overwrite: bool = False) -> h5py.File:
-    """Create the HDF5 output file with datasets and metadata.
-
-    Refuses to clobber an existing file unless ``overwrite=True``; callers
-    should opt into destructive behavior explicitly.
-    """
-    if path.exists() and not overwrite:
-        raise FileExistsError(
-            f"Output file already exists: {path}. Pass overwrite=True to replace."
-        )
+                        run_cfg: RunConfig) -> h5py.File:
+    """Create the HDF5 output file with datasets and metadata."""
     f = h5py.File(path, "w")
 
-    # Store the full config (round-trippable). Derived fields (ns, g_n,
-    # q_eq, ...) are NOT persisted — they are recomputed on restore via
-    # PrecomputedArrays.from_config, so there is a single source of truth.
+    # Store configs as attributes
     g = f.create_group("config")
-    _store_config_attrs(g, sim_cfg, run_cfg)
+    for attr in ["n_modes", "plate_mass", "spring_k", "q0", "v0",
+                 "x_left", "method", "rtol", "atol", "max_step",
+                 "boundary", "plate_thickness", "cutoff_shape"]:
+        g.attrs[attr] = getattr(sim_cfg, attr)
+    g.attrs["q_eq"] = sim_cfg.q_eq
+    g.attrs["total_time"] = run_cfg.total_time
+    g.attrs["segment_time"] = run_cfg.segment_time
+    g.attrs["samples_per_unit_time"] = run_cfg.samples_per_unit_time
+    g.attrs["checkpoint_interval"] = run_cfg.checkpoint_interval
 
     # Scalar time-series datasets (extensible along axis 0)
     ts = f.create_group("timeseries")
@@ -174,7 +106,7 @@ def _create_output_file(path: Path, sim_cfg: SimulationConfig,
 
 
 def _append_observables(f: h5py.File, t_pts: NDArray, y_pts: NDArray,
-                        sim_cfg: SimulationConfig, pre: PrecomputedArrays):
+                        sim_cfg: SimulationConfig):
     """Extract observables from state array and append to HDF5 datasets."""
     ts = f["timeseries"]
     n_pts = len(t_pts)
@@ -187,22 +119,21 @@ def _append_observables(f: h5py.File, t_pts: NDArray, y_pts: NDArray,
 
     # Compute scalar observables
     e_plate = 0.5 * sim_cfg.plate_mass * v_arr**2
-    e_spring = 0.5 * sim_cfg.spring_k * (q_arr - pre.q_eq)**2
+    e_spring = 0.5 * sim_cfg.spring_k * (q_arr - sim_cfg.q_eq)**2
 
     e_field = np.empty(n_pts)
     n_total = np.empty(n_pts)
     f_field = np.empty(n_pts)
     pn_arr = np.empty((n_pts, n_modes))
 
-    ns_pi_sq_g = pre.ns_pi_sq_g
-    g_n = pre.g_n
-    ns_pi = pre.ns_pi
+    ns_pi_sq_g = sim_cfg.ns_pi_sq_g
+    g_n = sim_cfg.g_n
 
     for i in range(n_pts):
         ms = y_pts[:idx, i]
         a = q_arr[i] - sim_cfg.x_left
-        e_field[i] = energy_mod.field_energy(ms, n_modes, a, g_n, ns_pi)
-        pn = mode_space.particle_number(ms, n_modes, a, g_n, ns_pi)
+        e_field[i] = energy_mod.field_energy(ms, n_modes, a, g_n, sim_cfg.ns_pi)
+        pn = mode_space.particle_number(ms, n_modes, a, g_n, sim_cfg.ns_pi)
         pn_arr[i] = pn
         n_total[i] = float(np.sum(pn))
         # Force = sum g_n * (n^2*pi^2 / a^3) * |f_n|^2
@@ -248,37 +179,61 @@ class ExperimentRunner:
                  initial_state: Optional[NDArray] = None,
                  start_time: float = 0.0,
                  start_segment: int = 0,
-                 overwrite: bool = False):
+                 is_resume: bool = False,
+                 progress_callback: Optional[Callable[[dict], None]] = None):
         self.sim_cfg = sim_cfg
         self.run_cfg = run_cfg
         self.output_path = Path(output_path)
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        self._overwrite = overwrite
-        self._pre = PrecomputedArrays.from_config(sim_cfg)
+        # Optional per-segment progress hook. Default None = unchanged behavior;
+        # the scenario CLIs and library callers are unaffected.
+        self._progress_callback = progress_callback
 
         if initial_state is not None:
             self._state = initial_state
         else:
-            self._state = build_initial_state(sim_cfg, self._pre)
+            self._state = build_initial_state(sim_cfg)
 
         self._t_current = start_time
         self._seg_idx = start_segment
         self._last_checkpoint_t = start_time
+        # True only when constructed via from_checkpoint. Decides append-vs-recreate in
+        # run() — never key that off seg_idx, which is 0 for a crash-before-first-checkpoint.
+        self._is_resume = is_resume
 
     @classmethod
     def from_checkpoint(cls, hdf5_path: str) -> "ExperimentRunner":
-        """Resume a run from the last checkpoint in an existing HDF5 file.
-
-        Reads the full SimulationConfig back from the HDF5 attrs (every
-        declared field, via :func:`_load_config_attrs`). Derived arrays
-        are recomputed via ``PrecomputedArrays.from_config``. A field that
-        existed at write time but was later removed from the dataclass is
-        silently dropped; a field that was added later falls back to its
-        current default.
-        """
+        """Resume a run from the last checkpoint in an existing HDF5 file."""
         with h5py.File(hdf5_path, "r") as f:
             cfg_grp = f["config"]
-            sim_cfg, run_cfg = _load_config_attrs(cfg_grp)
+
+            # Physics-affecting fields must round-trip or the resumed run silently
+            # changes physics (e.g. a periodic run reverting to the closed default).
+            # boundary/plate_thickness are always written; cutoff_shape is guarded for
+            # files produced before it was persisted.
+            sim_cfg = SimulationConfig(
+                n_modes=int(cfg_grp.attrs["n_modes"]),
+                plate_mass=float(cfg_grp.attrs["plate_mass"]),
+                spring_k=float(cfg_grp.attrs["spring_k"]),
+                q0=float(cfg_grp.attrs["q0"]),
+                v0=float(cfg_grp.attrs["v0"]),
+                x_left=float(cfg_grp.attrs["x_left"]),
+                boundary=str(cfg_grp.attrs["boundary"]),
+                plate_thickness=float(cfg_grp.attrs["plate_thickness"]),
+                cutoff_shape=(str(cfg_grp.attrs["cutoff_shape"])
+                              if "cutoff_shape" in cfg_grp.attrs else "sigmoid"),
+                method=str(cfg_grp.attrs["method"]),
+                rtol=float(cfg_grp.attrs["rtol"]),
+                atol=float(cfg_grp.attrs["atol"]),
+                max_step=float(cfg_grp.attrs["max_step"]),
+            )
+
+            run_cfg = RunConfig(
+                total_time=float(cfg_grp.attrs["total_time"]),
+                segment_time=float(cfg_grp.attrs["segment_time"]),
+                samples_per_unit_time=int(cfg_grp.attrs["samples_per_unit_time"]),
+                checkpoint_interval=float(cfg_grp.attrs["checkpoint_interval"]),
+            )
 
             # Find latest checkpoint
             ckpts = f["checkpoints"]
@@ -298,44 +253,73 @@ class ExperimentRunner:
             initial_state=state,
             start_time=t_current,
             start_segment=seg_idx,
+            is_resume=True,
         )
         return runner
 
-    def run(self) -> Path:
-        """Execute the full experiment, returning the output file path.
+    def _emit_progress(self, t_end: float, wall_start: float, status: str):
+        """Push a progress snapshot to the callback (no-op if none registered).
 
-        Writes go to ``<output_path>.tmp`` during the run and are atomically
-        replaced onto ``output_path`` only at clean completion. An existing
-        destination is preserved unless ``overwrite=True`` was passed to
-        the constructor, and a crash mid-run leaves the previous file
-        untouched.
+        Cheap relative to the ODE solve: one field-energy + particle-number pass
+        over the current state. Field quantities are skipped (NaN) if the cavity
+        has collapsed (a <= 0), so the terminal callback can't divide by zero.
         """
+        cb = self._progress_callback
+        if cb is None:
+            return
+        cfg = self.sim_cfg
+        n = cfg.n_modes
+        idx = 4 * n
+        q = float(self._state[idx])
+        v = float(self._state[idx + 1])
+        a = q - cfg.x_left
+        e_plate = 0.5 * cfg.plate_mass * v**2
+        e_spring = 0.5 * cfg.spring_k * (q - cfg.q_eq) ** 2
+        if a > 0.0:
+            ms = self._state[:idx]
+            e_field = energy_mod.field_energy(ms, n, a, cfg.g_n, cfg.ns_pi)
+            n_total = mode_space.total_particle_number(ms, n, a, cfg.g_n, cfg.ns_pi)
+            e_total = e_plate + e_spring + e_field
+        else:
+            e_field = e_total = n_total = float("nan")
+        cb({
+            "t": self._t_current,
+            "t_end": t_end,
+            "pct": 100.0 * self._t_current / t_end if t_end else 100.0,
+            "segment": self._seg_idx,
+            "E_plate": e_plate,
+            "E_spring": e_spring,
+            "E_field": e_field,
+            "E_total": e_total,
+            "N_total": n_total,
+            "wall": time.time() - wall_start,
+            "status": status,
+        })
+
+    def run(self) -> Path:
+        """Execute the full experiment, returning the output file path."""
         rc = self.run_cfg
         cfg = self.sim_cfg
-        pre = self._pre
         t_end = rc.total_time
         wall_start = time.time()
 
-        is_restart = self._seg_idx > 0
+        # Create or open output file. Append whenever we were built from a checkpoint,
+        # even if the only checkpoint was the initial seg-0 one — keying off seg_idx>0
+        # would truncate streamed data on a crash-before-first-checkpoint restart.
+        is_restart = self._is_resume
         if is_restart:
-            # Restart writes in-place (the destination is the file being
-            # resumed). Atomic-replace semantics don't help here because
-            # the prior data is the state we want to continue from.
-            work_path = self.output_path
-            f = h5py.File(work_path, "a")
+            f = h5py.File(self.output_path, "a")
             logger.info("Resuming from t=%.1f (segment %d)", self._t_current, self._seg_idx)
         else:
-            work_path = self.output_path.with_suffix(self.output_path.suffix + ".tmp")
-            if work_path.exists():
-                work_path.unlink()
-            f = _create_output_file(work_path, cfg, rc, overwrite=True)
+            f = _create_output_file(self.output_path, cfg, rc)
+            # Save initial checkpoint
             _save_checkpoint(f, self._t_current, self._state, 0)
+            # Save initial observables (t=0)
             t0_arr = np.array([self._t_current])
             y0_arr = self._state.reshape(-1, 1)
-            _append_observables(f, t0_arr, y0_arr, cfg, pre)
-            logger.info("Created output file: %s", work_path)
+            _append_observables(f, t0_arr, y0_arr, cfg)
+            logger.info("Created output file: %s", self.output_path)
 
-        clean_exit = False
         try:
             while self._t_current < t_end:
                 seg_t_start = self._t_current
@@ -347,8 +331,8 @@ class ExperimentRunner:
                 t_eval = np.linspace(seg_t_start, seg_t_end, n_samples + 1)[1:]
 
                 # Build RHS and events
-                rhs = make_rhs(cfg, pre)
-                events = [_make_cavity_collapse_event(cfg, pre), _make_nonfinite_event(cfg)]
+                rhs = make_rhs(cfg)
+                events = [_make_cavity_collapse_event(cfg)]
 
                 # Solve this segment
                 sol = solve_ivp(
@@ -358,23 +342,21 @@ class ExperimentRunner:
                     method=cfg.method,
                     rtol=cfg.rtol,
                     atol=cfg.atol,
-                    max_step=cfg.effective_max_step(),
+                    max_step=cfg.max_step,
                     t_eval=t_eval,
                     dense_output=False,
                     events=events,
                 )
 
                 if sol.status == 1:
-                    # Terminal event: either cavity collapse or non-finite state.
-                    # Both invalidate further evolution; persist what we have.
-                    reason = "cavity collapse or non-finite state"
-                    logger.warning("Terminal event at t=%.4f (%s), terminating.",
-                                   sol.t[-1], reason)
-                    _append_observables(f, sol.t, sol.y, cfg, pre)
+                    # Terminal event (cavity collapse)
+                    logger.warning("Cavity collapse at t=%.4f, terminating.", sol.t[-1])
+                    _append_observables(f, sol.t, sol.y, cfg)
                     self._state = sol.y[:, -1]
                     self._t_current = float(sol.t[-1])
                     _save_checkpoint(f, self._t_current, self._state, self._seg_idx)
                     f.attrs["status"] = "collapsed"
+                    self._emit_progress(t_end, wall_start, "collapsed")
                     break
 
                 if sol.status != 0:
@@ -382,10 +364,11 @@ class ExperimentRunner:
                     _save_checkpoint(f, self._t_current, self._state, self._seg_idx)
                     f.attrs["status"] = "failed"
                     f.attrs["error"] = sol.message
+                    self._emit_progress(t_end, wall_start, "failed")
                     break
 
                 # Append observables
-                _append_observables(f, sol.t, sol.y, cfg, pre)
+                _append_observables(f, sol.t, sol.y, cfg)
 
                 # Update state
                 self._state = sol.y[:, -1]
@@ -403,6 +386,9 @@ class ExperimentRunner:
                 f.attrs["segment_index"] = self._seg_idx
                 f.attrs["wall_time_seconds"] = time.time() - wall_start
 
+                # Push live progress to the callback (every segment)
+                self._emit_progress(t_end, wall_start, "running")
+
                 # Log progress
                 if self._seg_idx % rc.log_interval_segments == 0:
                     elapsed = time.time() - wall_start
@@ -417,23 +403,14 @@ class ExperimentRunner:
                 # Normal completion
                 _save_checkpoint(f, self._t_current, self._state, self._seg_idx)
                 f.attrs["status"] = "completed"
+                self._emit_progress(t_end, wall_start, "completed")
 
             f.attrs["wall_time_seconds"] = time.time() - wall_start
             logger.info("Run finished: status=%s, t=%.1f, wall=%.1fs",
                         f.attrs["status"], self._t_current,
                         f.attrs["wall_time_seconds"])
-            clean_exit = True
 
         finally:
             f.close()
-
-        # Atomic publish — only overwrite the destination on a clean run.
-        if not is_restart and clean_exit:
-            if self.output_path.exists() and not self._overwrite:
-                raise FileExistsError(
-                    f"Destination exists after run: {self.output_path}. "
-                    f"Temp file left at {work_path}. Pass overwrite=True to replace."
-                )
-            _atomic_replace(work_path, self.output_path)
 
         return self.output_path

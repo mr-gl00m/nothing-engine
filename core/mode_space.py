@@ -68,8 +68,8 @@ def form_factor(n_modes: int, n_cutoff: float,
 
 
 def mode_frequencies(n_modes: int, cavity_width: float,
-                     g_n: NDArray = None,
-                     ns_pi: NDArray = None) -> NDArray[np.float64]:
+                     g_n: NDArray | None = None,
+                     ns_pi: NDArray | None = None) -> NDArray[np.float64]:
     """Instantaneous cavity mode frequencies omega_n = ns_pi[n]/a * sqrt(g_n).
 
     The form factor enters as sqrt(g_n) on the frequency so that g_n
@@ -101,8 +101,8 @@ def mode_frequencies(n_modes: int, cavity_width: float,
 
 
 def mode_frequencies_squared(n_modes: int, cavity_width: float,
-                             g_n: NDArray = None,
-                             ns_pi: NDArray = None) -> NDArray[np.float64]:
+                             g_n: NDArray | None = None,
+                             ns_pi: NDArray | None = None) -> NDArray[np.float64]:
     """omega_n^2 = g_n * (ns_pi[n]/a)^2. Pre-computed for the ODE RHS hot path."""
     if ns_pi is None:
         ns_pi = mode_indices(n_modes) * PI
@@ -113,7 +113,7 @@ def mode_frequencies_squared(n_modes: int, cavity_width: float,
 
 
 def mode_frequency_derivatives(n_modes: int, cavity_width: float,
-                               g_n: NDArray = None) -> NDArray[np.float64]:
+                               g_n: NDArray | None = None) -> NDArray[np.float64]:
     """d(omega_n)/dq = -n*pi/a^2 * sqrt(g_n).
 
     Returns
@@ -129,8 +129,8 @@ def mode_frequency_derivatives(n_modes: int, cavity_width: float,
 
 
 def vacuum_initial_conditions(n_modes: int, cavity_width_0: float,
-                              g_n: NDArray = None,
-                              ns_pi: NDArray = None) -> NDArray[np.float64]:
+                              g_n: NDArray | None = None,
+                              ns_pi: NDArray | None = None) -> NDArray[np.float64]:
     """Build the 4N-element mode initial condition vector for exact vacuum.
 
     The state is packed as [u_1, u_dot_1, v_1, v_dot_1, u_2, ...].
@@ -177,7 +177,7 @@ def vacuum_initial_conditions(n_modes: int, cavity_width_0: float,
     return state
 
 
-def extract_mode_amplitudes_squared(mode_state: NDArray, n_modes: int) -> NDArray[np.float64]:
+def extract_mode_amplitudes_squared(mode_state: NDArray[np.float64], n_modes: int) -> NDArray[np.float64]:
     """|f_n|^2 = u_n^2 + v_n^2.
 
     Parameters
@@ -197,7 +197,7 @@ def extract_mode_amplitudes_squared(mode_state: NDArray, n_modes: int) -> NDArra
     return u**2 + v**2
 
 
-def extract_mode_velocities_squared(mode_state: NDArray, n_modes: int) -> NDArray[np.float64]:
+def extract_mode_velocities_squared(mode_state: NDArray[np.float64], n_modes: int) -> NDArray[np.float64]:
     """|f_dot_n|^2 = u_dot_n^2 + v_dot_n^2.
 
     Parameters
@@ -217,8 +217,8 @@ def extract_mode_velocities_squared(mode_state: NDArray, n_modes: int) -> NDArra
 
 def particle_number(mode_state: NDArray, n_modes: int,
                     cavity_width: float,
-                    g_n: NDArray = None,
-                    ns_pi: NDArray = None) -> NDArray[np.float64]:
+                    g_n: NDArray | None = None,
+                    ns_pi: NDArray | None = None) -> NDArray[np.float64]:
     """|beta_n|^2 = 0.5 * (omega_n * |f_n|^2 + |f_dot_n|^2 / omega_n) - 0.5
 
     This is the number of real particles created from vacuum in each mode.
@@ -247,8 +247,8 @@ def particle_number(mode_state: NDArray, n_modes: int,
 
 def total_particle_number(mode_state: NDArray, n_modes: int,
                           cavity_width: float,
-                          g_n: NDArray = None,
-                          ns_pi: NDArray = None) -> float:
+                          g_n: NDArray | None = None,
+                          ns_pi: NDArray | None = None) -> float:
     """N(t) = sum_n |beta_n|^2. Total particles created from vacuum."""
     return float(np.sum(particle_number(mode_state, n_modes, cavity_width, g_n, ns_pi)))
 

@@ -15,6 +15,11 @@ Usage:
     freqs, psd = compute_psd(t, v, post_ringdown_t=5e4)
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype),
+# so correct dataset indexing in this I/O glue trips the type checker. Suppress
+# those stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportReturnType=false
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.signal import welch
@@ -46,7 +51,12 @@ def find_post_ringdown_start(t: NDArray, e_plate: NDArray,
     float — time of post-ringdown onset
     """
     threshold = frac * e_plate[0]
-    below = np.where(e_plate < threshold)[0]
+    # Threshold the decay ENVELOPE (largest remaining value), not the instantaneous
+    # kinetic energy. For an oscillating plate E_plate = 1/2 M v^2 dips to ~0 at every
+    # velocity turning point, so a raw threshold would fire at the first quarter-period.
+    # The suffix-max is non-increasing and equals e_plate exactly for monotonic decay.
+    envelope = np.maximum.accumulate(e_plate[::-1])[::-1]
+    below = np.where(envelope < threshold)[0]
     if len(below) == 0:
         raise ValueError(
             f"E_plate never dropped below {frac*100:.0f}% of initial. "

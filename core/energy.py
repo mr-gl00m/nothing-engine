@@ -31,8 +31,8 @@ def spring_potential_energy(spring_k: float, q: float, q_eq: float) -> float:
 
 
 def vacuum_energy(n_modes: int, cavity_width: float,
-                  g_n: NDArray = None,
-                  ns_pi: NDArray = None) -> float:
+                  g_n: NDArray | None = None,
+                  ns_pi: NDArray | None = None) -> float:
     """Static vacuum zero-point energy: E_vac = sum_n omega_n / 2.
 
     General: E_vac = (1/(2*a)) * sum_n ns_pi[n] * sqrt(g_n).
@@ -46,10 +46,39 @@ def vacuum_energy(n_modes: int, cavity_width: float,
     return float(np.sum(ns_pi) / (2.0 * cavity_width))
 
 
+def field_energy(mode_state: NDArray, n_modes: int,
+                 cavity_width: float, g_n: NDArray | None = None,
+                 ns_pi: NDArray | None = None) -> float:
+    """Renormalized field energy (vacuum zero-point subtracted).
+
+    E_field_ren = sum_n 0.5 * (|f_dot_n|^2 + g_n * (ns_pi[n]/a)^2 * |f_n|^2)
+                  - E_vac(a, g_n, ns_pi)
+
+    Parameters
+    ----------
+    mode_state : NDArray, shape (4*N,)
+    n_modes : int
+    cavity_width : float
+    g_n : NDArray, optional
+        Form factor. If None, ideal Dirichlet.
+    ns_pi : NDArray, optional
+        Boundary-aware frequency coefficients. If None, defaults to n*pi.
+
+    Returns
+    -------
+    float
+    """
+    omegas_sq = mode_space.mode_frequencies_squared(n_modes, cavity_width, g_n, ns_pi)
+    f_sq = mode_space.extract_mode_amplitudes_squared(mode_state, n_modes)
+    fdot_sq = mode_space.extract_mode_velocities_squared(mode_state, n_modes)
+    E_raw = float(0.5 * np.sum(fdot_sq + omegas_sq * f_sq))
+    return E_raw - vacuum_energy(n_modes, cavity_width, g_n, ns_pi)
+
+
 def field_energy_per_mode(mode_state: NDArray, n_modes: int,
                           cavity_width: float,
-                          g_n: NDArray = None,
-                          ns_pi: NDArray = None) -> NDArray[np.float64]:
+                          g_n: NDArray | None = None,
+                          ns_pi: NDArray | None = None) -> NDArray[np.float64]:
     """Renormalized per-mode energy: E_n_raw - omega_n/2.
 
     Returns
@@ -63,21 +92,9 @@ def field_energy_per_mode(mode_state: NDArray, n_modes: int,
     return 0.5 * (fdot_sq + omegas_sq * f_sq) - 0.5 * omegas
 
 
-def field_energy(mode_state: NDArray, n_modes: int,
-                 cavity_width: float, g_n: NDArray = None,
-                 ns_pi: NDArray = None) -> float:
-    """Renormalized field energy (vacuum zero-point subtracted, per-mode).
-
-    Subtracts omega_n/2 inside the per-mode sum rather than as a separate
-    O(N^2) aggregate afterward. This avoids the catastrophic cancellation
-    of two large O(N^2) terms when the state is near vacuum.
-    """
-    return float(np.sum(field_energy_per_mode(mode_state, n_modes, cavity_width, g_n, ns_pi)))
-
-
 def particle_energy(mode_state: NDArray, n_modes: int,
-                    cavity_width: float, g_n: NDArray = None,
-                    ns_pi: NDArray = None) -> float:
+                    cavity_width: float, g_n: NDArray | None = None,
+                    ns_pi: NDArray | None = None) -> float:
     """Energy stored in created particles (above vacuum).
 
     E_particles = sum_n omega_n * |beta_n|^2
@@ -90,8 +107,8 @@ def particle_energy(mode_state: NDArray, n_modes: int,
 def total_energy(mode_state: NDArray, n_modes: int, cavity_width: float,
                  mass: float, velocity: float,
                  spring_k: float, q: float, q_eq: float,
-                 g_n: NDArray = None,
-                 ns_pi: NDArray = None) -> float:
+                 g_n: NDArray | None = None,
+                 ns_pi: NDArray | None = None) -> float:
     """Total system energy: E_plate + E_spring + E_field_ren.
 
     Exactly conserved by the coupled ODE.
@@ -104,8 +121,8 @@ def total_energy(mode_state: NDArray, n_modes: int, cavity_width: float,
 def energy_components(mode_state: NDArray, n_modes: int, cavity_width: float,
                       mass: float, velocity: float,
                       spring_k: float, q: float, q_eq: float,
-                      g_n: NDArray = None,
-                      ns_pi: NDArray = None) -> dict:
+                      g_n: NDArray | None = None,
+                      ns_pi: NDArray | None = None) -> dict:
     """Return all energy components as a dictionary."""
     e_plate = plate_kinetic_energy(mass, velocity)
     e_spring = spring_potential_energy(spring_k, q, q_eq)

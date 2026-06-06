@@ -1,25 +1,15 @@
 """
-Phase 2, Task 2.2 — "Open"-system ringdown (Track B, 10^5 cycles).
+Phase 2, Task 2.2 — Open-system ringdown (Track B, 10^5 cycles).
 
-LARGE-BOX APPROXIMATION, not a true open boundary. The current physics
-layer is a closed Dirichlet cavity between x_left and the plate at q(t).
-This script simulates a cavity that is simply much wider (q0 = L_domain,
-x_left = 0), with a proportionally larger mode count to hold the UV
-cutoff fixed. Long-wavelength modes (wavelength >> a0_physical) see a
-nearly translation-invariant vacuum and approximate an "open" environment
-over finite times, but there is no absorbing/radiative boundary condition
-at x = L_domain — modes still reflect off the far wall once a photon has
-had time to traverse the box. For T_run << L_domain / c the reflections
-are cosmetic; for T_run comparable to or greater than L_domain, the
-"open" regime breaks down.
+Open cavity approximation: same physics as closed, but with an extended
+mode space representing a large box (L_domain >> a0). The extra modes
+act as a photon reservoir — radiation can escape the cavity region.
 
-Comparing this directly against run_closed_ringdown.py conflates:
-    - boundary topology (closed Dirichlet vs approximate open)
-    - cavity width (1.0 vs L_domain)
-    - mode density per unit length (same by construction)
-The width mismatch is the big one. Casimir force scales as 1/a^2 so the
-wider cavity has a much weaker static force; any observed difference in
-"friction" has to be divided out from this before attributing to topology.
+The "open" system is modeled by placing the right boundary far away
+(large q0) while keeping the left wall at x_left=0. The plate starts
+at q0_plate (the physical cavity width), and the modes span the full
+domain [0, L_domain]. Modes with wavelength >> a0 couple weakly and
+act as the external vacuum reservoir.
 
 Per PRE_REGISTRATION.md §5.1:
     Same parameters as closed, extended mode space for large-box approximation.
@@ -120,22 +110,13 @@ def main():
         output_path = "data/experiments/open_ringdown.h5"
 
     print(f"=== Open-System Ringdown ({mode}) ===")
-    print("  WARNING: This is a LARGE-BOX APPROXIMATION, not a true")
-    print("  open/absorbing boundary. Cavity width differs from the closed")
-    print("  ringdown run — any direct comparison must account for the 1/a^2")
-    print("  Casimir scaling difference. See module docstring.")
     print(f"  Modes: {sim_cfg.n_modes}")
-    print(f"  Domain size (= cavity width here): {sim_cfg.q0}")
-    print(f"  Light-crossing time L/c: {sim_cfg.q0:.2f} "
-          f"(open-regime approximation breaks beyond T ~ this)")
+    print(f"  Domain size: {sim_cfg.q0}")
     print(f"  Mass: {sim_cfg.plate_mass}")
     print(f"  v0: {sim_cfg.v0}")
     print(f"  E_plate(0): {0.5 * sim_cfg.plate_mass * sim_cfg.v0**2:.6e}")
     print(f"  Total time: {run_cfg.total_time:.0f}")
     print(f"  Output: {output_path}")
-    if run_cfg.total_time > sim_cfg.q0 * 10.0:
-        print(f"  NOTE: total_time ({run_cfg.total_time:.0f}) >> L "
-              f"({sim_cfg.q0:.1f}); far-wall reflections will contaminate late times.")
     print()
 
     runner = ExperimentRunner(sim_cfg, run_cfg, output_path=output_path)

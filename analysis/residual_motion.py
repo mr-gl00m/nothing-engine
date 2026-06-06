@@ -10,6 +10,11 @@ Per PRE_REGISTRATION.md §5.5-5.6:
   - KS test with alpha = 0.01 (Bonferroni-corrected to 0.0125)
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype,
+# ks_2samp result access), so correct usage in this I/O glue trips the type
+# checker. Suppress those stub-driven rules here; the physics core stays checked.
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportOperatorIssue=false
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import ks_2samp

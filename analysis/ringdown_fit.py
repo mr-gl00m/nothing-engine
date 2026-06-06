@@ -16,6 +16,11 @@ Usage:
     print(results.summary())
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype),
+# so correct dataset indexing in this I/O glue trips the type checker. Suppress
+# those stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportReturnType=false
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import curve_fit
@@ -83,12 +88,18 @@ def select_fitting_window(t: NDArray, e_plate: NDArray,
     """
     e0 = e_plate[0]
     threshold = threshold_frac * e0
-    mask = e_plate >= threshold
+    # Threshold the decay ENVELOPE (largest remaining value), not the instantaneous
+    # kinetic energy. For an oscillating (spring-restored) plate E_plate = 1/2 M v^2
+    # dips to ~0 at every velocity turning point, which would collapse the window to the
+    # first quarter-period. The suffix-max is non-increasing and equals e_plate exactly
+    # for monotonic decay, so the k=0 ringdown windows are unchanged.
+    envelope = np.maximum.accumulate(e_plate[::-1])[::-1]
+    below = envelope < threshold
     # Include at least up to the first crossing
-    if not np.any(~mask):
-        # Never dropped below threshold — use all data
+    if not np.any(below):
+        # Envelope never dropped below threshold — use all data
         return t, e_plate
-    first_below = np.argmax(~mask)
+    first_below = int(np.argmax(below))
     return t[:first_below], e_plate[:first_below]
 
 

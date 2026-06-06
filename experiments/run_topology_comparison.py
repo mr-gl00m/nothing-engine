@@ -15,6 +15,11 @@ Usage:
     python -m nothing_engine.experiments.run_topology_comparison [--quick]
 """
 
+# h5py/scipy ship loose type stubs (Group.__getitem__ -> Group|Dataset|Datatype),
+# so correct dataset indexing in this I/O glue trips the type checker. Suppress
+# those stub-driven rules here; the physics core keeps full type checking.
+# pyright: reportIndexIssue=false, reportArgumentType=false, reportOperatorIssue=false
+
 import sys
 import logging
 from pathlib import Path
@@ -112,28 +117,20 @@ def summarize_results(configs):
         if has_fitter:
             try:
                 fits = fit_ringdown(t, e_plate)
-            except (RuntimeError, ValueError) as e:
-                result["best_model"] = "fit_failed"
-                result["fit_error"] = str(e)
-            else:
-                result["best_model"] = fits.best_model or "unknown"
-                best_fr = None
-                for fr in (fits.exponential, fits.stretched_exp, fits.power_law):
-                    if fr is not None and fr.name == fits.best_model:
-                        best_fr = fr
-                        break
+                # fit_ringdown returns a RingdownResults dataclass, not an iterable of
+                # dicts; it already selects the lowest-AIC model in .best_model.
+                result["best_model"] = fits.best_model
+                best_fr = {
+                    "Exponential": fits.exponential,
+                    "Stretched Exponential": fits.stretched_exp,
+                    "Power Law": fits.power_law,
+                }.get(fits.best_model)
                 if best_fr is not None:
+                    result["alpha"] = best_fr.params.get("alpha", np.nan)
+                    result["tau"] = best_fr.params.get("tau", np.nan)
                     result["aic"] = best_fr.aic
-                    # Exponential: gamma -> tau = 1/gamma. Stretched: also beta.
-                    # Power law: alpha is the exponent.
-                    params = best_fr.params
-                    if "gamma" in params and params["gamma"] > 0:
-                        result["tau"] = 1.0 / params["gamma"]
-                    else:
-                        result["tau"] = np.nan
-                    result["alpha"] = params.get(
-                        "alpha", params.get("beta", np.nan)
-                    )
+            except (ValueError, IndexError, RuntimeError):
+                result["best_model"] = "fit_failed"
 
         results.append(result)
 

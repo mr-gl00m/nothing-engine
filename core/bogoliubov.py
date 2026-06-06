@@ -42,13 +42,6 @@ PI = np.pi
 class SimulationConfig:
     """Configuration for a Track B simulation run.
 
-    Pure value type: every field is declared, nothing is derived here.
-    Call :meth:`precompute` (or :func:`PrecomputedArrays.from_config`)
-    to obtain the derived hot-path arrays needed by RHS builders,
-    initial-state builders, energy/particle analysis, and checkpoint
-    restore. Keeping derivation out of ``__post_init__`` makes the
-    config fully round-trippable through HDF5 attrs or YAML.
-
     Boundary types:
         "closed"   — Dirichlet walls, standing waves: omega_n = n*pi/a
         "periodic" — Ring topology, traveling waves: omega_n = 2*n*pi/L
@@ -70,16 +63,12 @@ class SimulationConfig:
     # n_cutoff = a0 / plate_thickness. Use np.inf to disable.
     plate_thickness: float = 0.0  # 0 = auto (a0/100)
     cutoff_shape: str = "sigmoid"  # "sigmoid" or "gaussian"
-    # Opt-in: recompute g_n(a(t)) each step so the UV cutoff n_cutoff =
-    # a(t) / plate_thickness tracks the plate position. Default False
-    # preserves reproducibility of runs where g_n was fixed at a0.
-    form_factor_tracks_plate: bool = False
 
     # Integrator
-    method: str = "DOP853"
+    method: str = "RK45"
     rtol: float = 1.0e-10
     atol: float = 1.0e-12
-    max_step: float = 0.0  # 0 = auto (Nyquist-safe from n_modes and q0)
+    max_step: float = 0.01
     t_span: tuple = (0.0, 1000.0)
     t_eval: Optional[NDArray] = None
     dense_output: bool = True
@@ -88,124 +77,64 @@ class SimulationConfig:
     audit_tolerance_factor: float = 1.0e-6
     audit_halt: bool = True
 
-    def precompute(self) -> "PrecomputedArrays":
-        return PrecomputedArrays.from_config(self)
+    def __post_init__(self):
+        """Pre-compute constant arrays for the RHS hot path."""
+        ns = np.arange(1, self.n_modes + 1, dtype=np.float64)
+        self.ns = ns
 
-    def effective_max_step(self) -> float:
-        """Nyquist-safe max_step derived from n_modes and q0.
-
-        The highest cavity mode has period T_N = 2*a/N (closed) or L/N
-        (periodic). Returning T_N / 4 keeps RK family integrators well
-        below the Nyquist limit. Honored only when max_step == 0.
-        """
-        if self.max_step > 0.0:
-            return self.max_step
-        a0 = self.q0 - self.x_left
+        # Mode frequency coefficients depend on boundary type
         if self.boundary == "periodic":
-            period_hi = a0 / self.n_modes
+            # Traveling waves on a ring: omega_n = 2*n*pi / L
+            # The factor of 2 vs Dirichlet comes from periodic BCs
+            # requiring integer wavelengths (lambda = L/n) vs half-integer
+            # (lambda = 2a/n for standing waves).
+            self.ns_pi = 2.0 * ns * PI
+            self.ns_pi_sq = (2.0 * ns * PI) ** 2
         else:
-            period_hi = 2.0 * a0 / self.n_modes
-        return period_hi / 4.0
+            # Dirichlet standing waves: omega_n = n*pi / a
+            self.ns_pi = ns * PI
+            self.ns_pi_sq = (ns * PI) ** 2
 
+        self.q_eq = self.q0
 
-@dataclass
-class PrecomputedArrays:
-    """Derived hot-path arrays computed once from a :class:`SimulationConfig`.
-
-    Split out from the config so that the config is a pure, serializable
-    value type. Callers that hit the RHS, build initial conditions,
-    compute energies, or analyze results pass this alongside the config.
-    """
-
-    ns: NDArray
-    ns_pi: NDArray
-    ns_pi_sq: NDArray
-    ns_pi_sq_g: NDArray
-    g_n: NDArray
-    n_cutoff: float
-    q_eq: float
-    vac_force_coeff: float
-    # Per-mode vacuum |f_n|^2 scale: |f_n|^2_vac(a) = a * inv_2_ns_pi_sqrt_g.
-    # Used by the RHS to subtract the vacuum force per-mode, avoiding the
-    # catastrophic cancellation of F_raw - F_vac when both are O(N^3).
-    inv_2_ns_pi_sqrt_g: NDArray
-    # Plate-thickness-tracking opt-in: the physical delta that sets the
-    # cutoff, kept so the RHS can recompute n_cutoff(a(t)) = a(t)/delta.
-    plate_thickness_effective: float = 0.0
-    cutoff_shape: str = "sigmoid"
-
-    @classmethod
-    def from_config(cls, cfg: SimulationConfig) -> "PrecomputedArrays":
-        ns = np.arange(1, cfg.n_modes + 1, dtype=np.float64)
-
-        if cfg.boundary == "periodic":
-            ns_pi = 2.0 * ns * PI
-        elif cfg.boundary == "closed":
-            ns_pi = ns * PI
+        # Form factor for UV regularization
+        a0 = self.q0 - self.x_left
+        if self.plate_thickness <= 0:
+            # Auto: delta = a0/100, so n_cutoff = 100
+            self.n_cutoff = 100.0
         else:
-            raise ValueError(
-                f"Unknown boundary={cfg.boundary!r}; expected 'closed' or 'periodic'"
-            )
-        ns_pi_sq = ns_pi ** 2
+            self.n_cutoff = a0 / self.plate_thickness
+        self.g_n = mode_space.form_factor(self.n_modes, self.n_cutoff, self.cutoff_shape)
 
-        a0 = cfg.q0 - cfg.x_left
-        if a0 <= 0.0:
-            raise ValueError(f"Non-positive initial cavity width a0={a0}")
-        if cfg.plate_thickness <= 0.0:
-            # Auto: delta = a0/100 -> n_cutoff = 100 at a=a0.
-            plate_thickness_eff = a0 / 100.0
-        else:
-            plate_thickness_eff = cfg.plate_thickness
-        n_cutoff = a0 / plate_thickness_eff
-        g_n = mode_space.form_factor(cfg.n_modes, n_cutoff, cfg.cutoff_shape)
-
-        ns_pi_sq_g = ns_pi_sq * g_n
-        sqrt_g = np.sqrt(g_n)
-        # Static vacuum force with form factor: F_vac * a^2 = 0.5 * sum ns_pi * sqrt(g_n)
-        vac_force_coeff = 0.5 * float(np.dot(ns_pi, sqrt_g))
-        # 1 / (2 * omega_n * a) = 1 / (2 * ns_pi * sqrt(g_n))
-        inv_2_ns_pi_sqrt_g = 1.0 / (2.0 * ns_pi * sqrt_g)
-
-        q_eq = cfg.q0  # spring anchor; physics decision kept stable for now
-
-        return cls(
-            ns=ns,
-            ns_pi=ns_pi,
-            ns_pi_sq=ns_pi_sq,
-            ns_pi_sq_g=ns_pi_sq_g,
-            g_n=g_n,
-            n_cutoff=n_cutoff,
-            q_eq=q_eq,
-            vac_force_coeff=vac_force_coeff,
-            inv_2_ns_pi_sqrt_g=inv_2_ns_pi_sqrt_g,
-            plate_thickness_effective=plate_thickness_eff,
-            cutoff_shape=cfg.cutoff_shape,
-        )
+        # Form-factor-weighted pre-computed arrays for the RHS hot path
+        # omega_n^2 = g_n * (n*pi)^2 / a^2  [or g_n * (2*n*pi)^2 / L^2]
+        self.ns_pi_sq_g = self.ns_pi_sq * self.g_n
 
 
 @dataclass
 class SimulationResult:
     """Results from a Track B simulation run."""
 
-    t: NDArray                                       # time points, shape (n_t,)
-    y: NDArray                                       # state history, shape (4N+2, n_t)
-    sol: Optional[OdeSolution] = None                # dense output (if requested)
+    t: NDArray                            # time points, shape (n_t,)
+    y: NDArray                            # state history, shape (4N+2, n_t)
+    sol: Optional[OdeSolution] = None     # dense output (if requested)
     config: Optional[SimulationConfig] = None
-    precomputed: Optional[PrecomputedArrays] = None
     rhs_call_count: int = 0
     energy_violations: list = dataclass_field(default_factory=list)
     termination_message: str = ""
 
-    def _pre(self) -> PrecomputedArrays:
-        if self.precomputed is None:
-            if self.config is None:
-                raise ValueError("SimulationResult missing both config and precomputed")
-            self.precomputed = PrecomputedArrays.from_config(self.config)
-        return self.precomputed
-
     @property
     def n_modes(self) -> int:
         return self.config.n_modes if self.config else (self.y.shape[0] - 2) // 4
+
+    @property
+    def _cfg(self) -> SimulationConfig:
+        """Config, required for energy/particle reconstruction. Raises if absent."""
+        if self.config is None:
+            raise ValueError(
+                "SimulationResult.config is required for this operation"
+            )
+        return self.config
 
     @property
     def plate_q(self) -> NDArray:
@@ -226,27 +155,27 @@ class SimulationResult:
 
     def particle_number_at(self, i: int) -> NDArray:
         """Per-mode particle number at time index i. Shape (N,)."""
-        pre = self._pre()
+        cfg = self._cfg
         ms = self.mode_state_at(i)
-        a = self.y[4 * self.n_modes, i] - self.config.x_left
-        return mode_space.particle_number(ms, self.n_modes, a, pre.g_n, pre.ns_pi)
+        a = self.y[4 * self.n_modes, i] - cfg.x_left
+        return mode_space.particle_number(ms, self.n_modes, a, cfg.g_n, cfg.ns_pi)
 
     def total_particle_number_at(self, i: int) -> float:
         return float(np.sum(self.particle_number_at(i)))
 
     def energy_at(self, i: int) -> dict:
         """Energy components at time index i."""
-        pre = self._pre()
+        cfg = self._cfg
         idx = 4 * self.n_modes
         ms = self.y[:idx, i]
         q = self.y[idx, i]
         v = self.y[idx + 1, i]
-        a = q - self.config.x_left
+        a = q - cfg.x_left
         return energy_mod.energy_components(
             ms, self.n_modes, a,
-            self.config.plate_mass, v,
-            self.config.spring_k, q, pre.q_eq,
-            pre.g_n, pre.ns_pi,
+            cfg.plate_mass, v,
+            cfg.spring_k, q, cfg.q_eq,
+            cfg.g_n, cfg.ns_pi,
         )
 
 
@@ -284,12 +213,12 @@ def unpack_state(y: NDArray, n_modes: int) -> tuple[NDArray, float, float]:
     return y[:idx], float(y[idx]), float(y[idx + 1])
 
 
-def make_rhs(cfg: SimulationConfig, pre: PrecomputedArrays) -> Callable:
+def make_rhs(cfg: SimulationConfig) -> Callable:
     """Build the ODE right-hand-side function as a closure.
 
-    Captures the precomputed hot-path arrays to minimize per-call
-    overhead. The returned function has the signature required by
-    scipy.integrate.solve_ivp: rhs(t, y) -> dydt.
+    Captures pre-computed arrays (ns_pi_sq, etc.) to minimize
+    per-call overhead. The returned function has the signature
+    required by scipy.integrate.solve_ivp: rhs(t, y) -> dydt.
 
     The closure also tracks call count via rhs.call_count.
     """
@@ -297,16 +226,15 @@ def make_rhs(cfg: SimulationConfig, pre: PrecomputedArrays) -> Callable:
     idx = 4 * N
     M = cfg.plate_mass
     k = cfg.spring_k
-    q_eq = pre.q_eq
+    q_eq = cfg.q_eq
     x_L = cfg.x_left
-    ns_pi = pre.ns_pi
-    ns_pi_sq = pre.ns_pi_sq
-    ns_pi_sq_g = pre.ns_pi_sq_g  # shape (N,): g_n * n^2 * pi^2 (static g_n)
-    inv_2_ns_pi_sqrt_g = pre.inv_2_ns_pi_sqrt_g  # shape (N,): 1/(2*ns_pi*sqrt(g_n))
-    track_g = cfg.form_factor_tracks_plate
-    delta_plate = pre.plate_thickness_effective
-    cutoff_shape = pre.cutoff_shape
-    two_inv_ns_pi = 1.0 / (2.0 * ns_pi)  # used only in tracking branch
+    ns_pi_sq_g = cfg.ns_pi_sq_g  # shape (N,): g_n * n^2 * pi^2
+
+    # Static vacuum force with form factor (boundary-aware):
+    # F_vac = sum_n ns_pi_sq_g[n] / a^3 * |f_n_vac|^2
+    #       = sum_n ns_pi_sq_g[n] / a^3 * a/(2*ns_pi[n]*sqrt(g_n))
+    #       = (1/(2*a^2)) * sum_n ns_pi[n] * sqrt(g_n)
+    _vac_force_coeff = 0.5 * float(np.dot(cfg.ns_pi, np.sqrt(cfg.g_n)))
 
     call_count = [0]
 
@@ -319,20 +247,9 @@ def make_rhs(cfg: SimulationConfig, pre: PrecomputedArrays) -> Callable:
         v_plate = y[idx + 1]
         a = q - x_L  # cavity width
 
-        # -- Form factor: static (default) or tracking the plate --
-        if track_g:
-            n_cut_t = a / delta_plate
-            g_n_t = mode_space.form_factor(N, n_cut_t, cutoff_shape)
-            ns_pi_sq_g_t = ns_pi_sq * g_n_t
-            inv_2_ns_pi_sqrt_g_t = two_inv_ns_pi / np.sqrt(g_n_t)
-        else:
-            g_n_t = None  # unused
-            ns_pi_sq_g_t = ns_pi_sq_g
-            inv_2_ns_pi_sqrt_g_t = inv_2_ns_pi_sqrt_g
-
         # -- Mode frequencies squared: omega_n^2 = g_n * (n*pi)^2 / a^2 --
         inv_a_sq = 1.0 / (a * a)
-        omega_sq = ns_pi_sq_g_t * inv_a_sq  # shape (N,)
+        omega_sq = ns_pi_sq_g * inv_a_sq  # shape (N,)
 
         # -- Extract mode variables (stride-4 with explicit stop) --
         u = y[0:idx:4]          # u_n
@@ -346,14 +263,14 @@ def make_rhs(cfg: SimulationConfig, pre: PrecomputedArrays) -> Callable:
         dydt[2:idx:4] = v_dot
         dydt[3:idx:4] = -omega_sq * v
 
-        # -- Renormalized field force on plate (per-mode subtraction) --
-        # Algebraically F_ren = sum g_n * (n*pi)^2 / a^3 * (|f_n|^2 - 1/(2*omega_n))
-        # where 1/(2*omega_n) = a / (2*ns_pi*sqrt(g_n)) is the vacuum |f_n|^2.
-        # Subtracting per-mode avoids the O(N^3) catastrophic cancellation
-        # of F_raw - F_vac at the sum level.
+        # -- Renormalized field force on plate --
+        # F_raw = sum g_n * (n^2 * pi^2 / a^3) * |f_n|^2
+        # F_vac = sum g_n * n * pi / (2 * a^2)   [static vacuum with form factor]
+        # F_ren = F_raw - F_vac
         f_sq = u * u + v * v  # |f_n|^2, shape (N,)
-        f_sq_excess = f_sq - a * inv_2_ns_pi_sqrt_g_t
-        F_field = np.dot(ns_pi_sq_g_t, f_sq_excess) / (a * a * a)
+        F_raw = np.dot(ns_pi_sq_g, f_sq) / (a * a * a)
+        F_vac = _vac_force_coeff * inv_a_sq
+        F_field = F_raw - F_vac
 
         # -- Plate ODE --
         dydt[idx] = v_plate
@@ -366,10 +283,8 @@ def make_rhs(cfg: SimulationConfig, pre: PrecomputedArrays) -> Callable:
 
 
 def make_prescribed_rhs(cfg: SimulationConfig,
-                        pre: PrecomputedArrays,
                         q_func: Callable[[float], float],
-                        v_func: Callable[[float], float],
-                        a_func: Optional[Callable[[float], float]] = None) -> Callable:
+                        v_func: Callable[[float], float]) -> Callable:
     """Build RHS with externally prescribed plate motion.
 
     Used for validation Gate 4.2 (dynamic Casimir effect with known
@@ -379,20 +294,15 @@ def make_prescribed_rhs(cfg: SimulationConfig,
     Parameters
     ----------
     cfg : SimulationConfig
-    pre : PrecomputedArrays
     q_func : callable
         q(t) -> plate position at time t.
     v_func : callable
         v(t) -> plate velocity at time t. Must be consistent derivative of q_func.
-    a_func : callable, optional
-        a(t) -> plate acceleration. When provided, the integrated plate
-        velocity variable is steered back to ``v_func(t)`` exactly; when
-        omitted, a proportional corrector keeps drift bounded.
     """
     N = cfg.n_modes
     idx = 4 * N
     x_L = cfg.x_left
-    ns_pi_sq_g = pre.ns_pi_sq_g
+    ns_pi_sq_g = cfg.ns_pi_sq_g
 
     call_count = [0]
 
@@ -412,13 +322,9 @@ def make_prescribed_rhs(cfg: SimulationConfig,
         dydt[2:idx:4] = y[3:idx:4]           # v_dot
         dydt[3:idx:4] = -omega_sq * y[2:idx:4]  # v_ddot
 
-        # Plate DOFs track prescribed values. Use acceleration when given;
-        # otherwise pull v_plate toward v_func(t) so it does not wander.
+        # Plate DOFs track prescribed values (small integration error is cosmetic)
         dydt[idx] = v_func(t)
-        if a_func is not None:
-            dydt[idx + 1] = a_func(t)
-        else:
-            dydt[idx + 1] = v_func(t) - y[idx + 1]
+        dydt[idx + 1] = 0.0  # placeholder
 
         return dydt
 
@@ -426,7 +332,7 @@ def make_prescribed_rhs(cfg: SimulationConfig,
     return rhs
 
 
-def build_initial_state(cfg: SimulationConfig, pre: PrecomputedArrays) -> NDArray:
+def build_initial_state(cfg: SimulationConfig) -> NDArray:
     """Construct the initial state vector from config.
 
     Mode functions initialized to exact vacuum. Plate at q0 with velocity v0.
@@ -436,19 +342,14 @@ def build_initial_state(cfg: SimulationConfig, pre: PrecomputedArrays) -> NDArra
     NDArray, shape (4*N + 2,)
     """
     a0 = cfg.q0 - cfg.x_left
-    mode_ic = mode_space.vacuum_initial_conditions(cfg.n_modes, a0, pre.g_n, pre.ns_pi)
+    mode_ic = mode_space.vacuum_initial_conditions(cfg.n_modes, a0, cfg.g_n, cfg.ns_pi)
     return pack_state(mode_ic, cfg.q0, cfg.v0)
 
 
-def _make_cavity_collapse_event(cfg: SimulationConfig, pre: PrecomputedArrays):
-    """Terminal event: stop if cavity width drops below max(1% of a0, 2*plate_thickness).
-
-    The lower bound protects against the form factor cutoff range:
-    ``a_min >= 2*plate_thickness`` keeps the RHS form factor meaningful.
-    """
+def _make_cavity_collapse_event(cfg: SimulationConfig):
+    """Terminal event: stop if cavity width drops below 1% of initial."""
     a0 = cfg.q0 - cfg.x_left
-    delta = a0 / pre.n_cutoff if pre.n_cutoff > 0 else 0.0
-    min_a = max(0.01 * a0, 2.0 * delta)
+    min_a = 0.01 * a0
     idx = 4 * cfg.n_modes
 
     def cavity_collapse(t, y):
@@ -459,62 +360,40 @@ def _make_cavity_collapse_event(cfg: SimulationConfig, pre: PrecomputedArrays):
     return cavity_collapse
 
 
-def _make_nonfinite_event(cfg: SimulationConfig):
-    """Terminal event: stop if the state develops a NaN or Inf.
-
-    ``solve_ivp`` polls the event function after each accepted step,
-    so this catches pathological growth within one step of occurring
-    rather than letting NaNs propagate until the integrator itself
-    gives up with an opaque failure.
-    """
-    def finite_guard(t, y):
-        return 1.0 if np.isfinite(y).all() else -1.0
-
-    finite_guard.terminal = True
-    finite_guard.direction = -1
-    return finite_guard
-
-
 def run_simulation(cfg: SimulationConfig,
-                   prescribed_motion: Optional[tuple] = None,
-                   extra_events: Optional[list] = None,
-                   precomputed: Optional[PrecomputedArrays] = None) -> SimulationResult:
+                   prescribed_motion: Optional[tuple[Callable, Callable]] = None,
+                   extra_events: Optional[list] = None) -> SimulationResult:
     """Run a full Track B simulation.
 
     Parameters
     ----------
     cfg : SimulationConfig
         Full simulation configuration.
-    prescribed_motion : optional tuple
-        ``(q_func, v_func)`` or ``(q_func, v_func, a_func)``. If provided,
-        plate follows prescribed motion (for validation).
+    prescribed_motion : optional tuple of (q_func, v_func)
+        If provided, plate follows prescribed motion (for validation).
     extra_events : optional list
         Additional event functions for solve_ivp.
-    precomputed : optional PrecomputedArrays
-        Reuse a cached derivation (useful in segmented runs).
 
     Returns
     -------
     SimulationResult
     """
-    pre = precomputed if precomputed is not None else PrecomputedArrays.from_config(cfg)
+    # Build initial state
+    y0 = build_initial_state(cfg)
 
-    y0 = build_initial_state(cfg, pre)
-
+    # Build RHS
     if prescribed_motion is not None:
-        if len(prescribed_motion) == 3:
-            q_func, v_func, a_func = prescribed_motion
-        else:
-            q_func, v_func = prescribed_motion
-            a_func = None
-        rhs = make_prescribed_rhs(cfg, pre, q_func, v_func, a_func)
+        q_func, v_func = prescribed_motion
+        rhs = make_prescribed_rhs(cfg, q_func, v_func)
     else:
-        rhs = make_rhs(cfg, pre)
+        rhs = make_rhs(cfg)
 
-    events = [_make_cavity_collapse_event(cfg, pre), _make_nonfinite_event(cfg)]
+    # Events
+    events = [_make_cavity_collapse_event(cfg)]
     if extra_events:
         events.extend(extra_events)
 
+    # Integrate
     sol = solve_ivp(
         rhs,
         t_span=cfg.t_span,
@@ -522,31 +401,23 @@ def run_simulation(cfg: SimulationConfig,
         method=cfg.method,
         rtol=cfg.rtol,
         atol=cfg.atol,
-        max_step=cfg.effective_max_step(),
+        max_step=cfg.max_step,
         t_eval=cfg.t_eval,
         dense_output=cfg.dense_output,
         events=events,
     )
 
+    # Build result
     result = SimulationResult(
         t=sol.t,
         y=sol.y,
         sol=sol.sol if cfg.dense_output else None,
         config=cfg,
-        precomputed=pre,
         rhs_call_count=rhs.call_count[0],
         termination_message=sol.message,
     )
 
     return result
-
-
-def make_rhs_auto(cfg: SimulationConfig) -> Callable:
-    """Convenience for callers that do not want to manage a PrecomputedArrays.
-
-    Equivalent to ``make_rhs(cfg, cfg.precompute())``.
-    """
-    return make_rhs(cfg, cfg.precompute())
 
 
 def audit_result(result: SimulationResult,
@@ -569,7 +440,7 @@ def audit_result(result: SimulationResult,
     PhysicalIntegrityError
         If conservation is violated (and audit_halt is True in config).
     """
-    cfg = result.config
+    cfg = result._cfg
     auditor = audit_mod.EnergyAuditor(
         tolerance_factor=cfg.audit_tolerance_factor,
         halt_on_violation=cfg.audit_halt,
@@ -577,7 +448,7 @@ def audit_result(result: SimulationResult,
 
     # Reference energy at t=0
     e0 = result.energy_at(0)
-    auditor.set_reference(e0["E_total"], e0["E_plate"], e0.get("E_field"))
+    auditor.set_reference(e0["E_total"], e0["E_plate"])
 
     # Check at selected time points
     n_t = len(result.t)

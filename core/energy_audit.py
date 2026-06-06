@@ -71,30 +71,21 @@ class EnergyAuditor:
         self._max_drift: float = 0.0
         self._step_count: int = 0
 
-    def set_reference(self, E_total_0: float, E_plate_0: float,
-                      E_field_0: Optional[float] = None):
+    def set_reference(self, E_total_0: float, E_plate_0: float):
         """Set the reference energy and compute tolerance.
 
-        Must be called before any check() calls. When ``E_field_0`` is
-        provided, the tolerance scale is ``max(|E_plate_0|, |E_field_0|)``
-        so that a large drift in the field sector cannot hide inside a
-        constant-plate-energy envelope. When omitted, the legacy
-        plate-only scaling is used.
+        Must be called before any check() calls.
 
         Parameters
         ----------
         E_total_0 : float
             Total energy at t=0.
         E_plate_0 : float
-            Plate kinetic energy at t=0.
-        E_field_0 : float, optional
-            Field energy at t=0 (finite, post-renormalization).
+            Plate kinetic energy at t=0 (for tolerance scaling).
         """
         self._E0 = E_total_0
-        scale = abs(E_plate_0)
-        if E_field_0 is not None:
-            scale = max(scale, abs(E_field_0))
-        scale = max(scale, 1e-20)
+        # Guard against zero plate energy (static plate tests)
+        scale = max(abs(E_plate_0), 1e-20)
         self._tolerance = self.tolerance_factor * scale
 
     def check(self, t: float, E_plate: float, E_spring: float,
@@ -119,7 +110,7 @@ class EnergyAuditor:
         PhysicalIntegrityError
             If drift exceeds tolerance and halt_on_violation is True.
         """
-        if self._E0 is None:
+        if self._E0 is None or self._tolerance is None:
             raise RuntimeError("EnergyAuditor.set_reference() not called")
 
         E_total = E_plate + E_spring + E_field
