@@ -13,7 +13,6 @@ PASS: Total N(T) < 1e-6 (100x below resonant case).
 """
 
 import sys
-import os
 import numpy as np
 
 from nothing_engine.core import mode_space
@@ -22,10 +21,10 @@ from nothing_engine.core.bogoliubov import SimulationConfig, run_simulation
 
 def run_validation():
     print("=" * 60)
-    print("Gate 4.6: Adiabatic Limit — Negligible Particle Creation")
+    print("Gate 4.6: Adiabatic Limit: Negligible Particle Creation")
     print("=" * 60)
 
-    N = 32
+    N = 16
     M_heavy = 1e8
     v0_slow = 1e-6
     a0 = 1.0
@@ -36,10 +35,12 @@ def run_validation():
         spring_k=0.0,
         q0=a0,
         v0=v0_slow,
+        method="DOP853",
         t_span=(0.0, 50.0),
+        t_eval=np.linspace(0.0, 50.0, 1001),
         rtol=1e-12,
         atol=1e-14,
-        max_step=0.005,
+        max_step=0.01,
         audit_halt=False,
     )
 

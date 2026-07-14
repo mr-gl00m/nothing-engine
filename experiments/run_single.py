@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = argparse.ArgumentParser(
         prog="run_single",
-        description="Run one Track B Casimir simulation, streaming JSON progress to stdout.",
+        description="Run one diagonal mode simulation with JSON progress output.",
     )
     p.add_argument("--output", required=True,
                    help="Output HDF5 path (parent dirs created if missing).")
@@ -51,7 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     phys.add_argument("--x-left", type=float, default=sim_d.x_left)
     phys.add_argument("--boundary", choices=["closed", "periodic"], default=sim_d.boundary)
     phys.add_argument("--plate-thickness", type=float, default=sim_d.plate_thickness,
-                      help="0 = auto (a0/100). n_cutoff = a0 / plate_thickness.")
+                      help=("0 disables the phenomenological spectral weight. "
+                            "Positive values set n_cutoff = a0 / plate_thickness."))
     phys.add_argument("--cutoff-shape", choices=["sigmoid", "gaussian"], default=sim_d.cutoff_shape)
 
     integ = p.add_argument_group("integrator")

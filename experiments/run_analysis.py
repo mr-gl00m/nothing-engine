@@ -1,5 +1,5 @@
 """
-Phase 2, Tasks 2.3-2.5 — Run all pre-registered analyses on completed experiments.
+Phase 2, Tasks 2.3-2.5: Run all pre-registered analyses on completed experiments.
 
 Loads closed and/or open ringdown HDF5 files and runs:
   1. Ringdown fitting (3 models + AIC)
@@ -163,7 +163,7 @@ def main():
     parser.add_argument("--closed", type=str, default=None,
                         help="Path to closed ringdown HDF5")
     parser.add_argument("--open", type=str, default=None,
-                        help="Path to open ringdown HDF5")
+                        help="Path to the historical large finite cavity proxy HDF5")
     parser.add_argument("--no-plots", action="store_true")
     args = parser.parse_args()
 
@@ -192,7 +192,7 @@ def main():
 
     if args.open and Path(args.open).exists():
         found_any = True
-        open_results = analyze_single(args.open, "Open System", plots)
+        open_results = analyze_single(args.open, "Large Finite Cavity Proxy", plots)
 
     if not found_any:
         print("No experiment data found.")
@@ -204,7 +204,7 @@ def main():
     # Cross-comparison
     if closed_results and open_results:
         print(f"\n{'='*60}")
-        print("  Cross-System Comparison")
+        print("  Closed Interval and Large Box Proxy Comparison")
         print(f"{'='*60}\n")
 
         cr_fit, cr_psd, cr_stats = closed_results

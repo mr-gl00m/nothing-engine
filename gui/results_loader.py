@@ -1,7 +1,7 @@
 """Off-thread HDF5 + analysis loader for the results view.
 
 Given a completed `.h5`, this reads the timeseries, runs the ringdown fit and the
-post-ringdown PSD (each guarded — short runs legitimately have neither), and
+post-ringdown PSD (each guarded: short runs legitimately have neither), and
 packages everything as plain numpy arrays so the GUI thread only plots. Runs on
 the global QThreadPool; results arrive on the `loaded` signal.
 """

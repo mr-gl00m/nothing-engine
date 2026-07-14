@@ -38,7 +38,7 @@ def test_fit_window_spans_the_decay_on_oscillatory_data():
 
 def test_monotonic_decay_window_unchanged():
     # On monotonic data the suffix-max envelope equals e_plate, so the window is identical
-    # to a raw instantaneous threshold — the k=0 ringdown results must not move.
+    # to a raw instantaneous threshold: the k=0 ringdown results must not move.
     t = np.linspace(0.0, 1000.0, 2000)
     e_plate = np.exp(-t / 100.0)
     frac = 0.01

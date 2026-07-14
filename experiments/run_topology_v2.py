@@ -1,14 +1,18 @@
-"""
-Topology comparison v2: addresses methodological concerns.
+"""Frequency matched boundary sensitivity study for the reduced model.
 
 Fixes from v1:
 1. Frequency matching: periodic ring uses L=2*a so fundamental
    frequencies match (omega_1 = pi/a for both topologies).
-2. Spring restoring force (k>0) keeps plate near equilibrium,
+2. Spring restoring force (k>0) keeps the coordinate near its rest value,
    preventing enormous displacement and catastrophic cancellation.
-3. Sigmoid form factor for sharper UV cutoff.
+3. Ideal scalar spectrum with an explicit finite mode truncation.
 4. Reports N_total (particle number) as clean observable.
-5. Runs at N=64 and N=128 to check ratio convergence.
+5. Runs at N=64 and N=128 to check numerical ratio stability.
+
+This normalization matches frequencies while leaving the absolute coordinate
+velocity equal. The fractional rate q_dot/q therefore differs by a factor of
+two. Periodic modes also have twofold degeneracy. The output is a sensitivity
+study, not an isolated measurement of topology or a physical torus prediction.
 
 Usage:
     python -m nothing_engine.experiments.run_topology_v2 [--quick]
@@ -116,8 +120,10 @@ def analyze_run(path: str, sim_cfg: SimulationConfig, label: str):
     # Particle number from checkpoint (more reliable than timeseries)
     q_final = state[idx]
     a_final = q_final - sim_cfg.x_left
-    pn_final = mode_space.particle_number(ms_final, sim_cfg.n_modes, a_final,
-                                           sim_cfg.g_n, sim_cfg.ns_pi)
+    pn_final = sim_cfg.mode_degeneracy * mode_space.particle_number(
+        ms_final, sim_cfg.n_modes, a_final,
+        sim_cfg.g_n, sim_cfg.ns_pi,
+    )
     n_total_final = float(np.sum(pn_final))
     n_positive = float(np.sum(np.maximum(pn_final, 0)))
 
@@ -145,7 +151,7 @@ def print_results(results):
     """Print comparison table."""
     print()
     print("=" * 80)
-    print("  TOPOLOGY COMPARISON v2 — frequency-matched, spring-restored")
+    print("  BOUNDARY SENSITIVITY v2: frequency matched, spring restored")
     print("=" * 80)
 
     # Group by n_modes

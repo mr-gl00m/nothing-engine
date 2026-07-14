@@ -1,11 +1,10 @@
-"""
-Phase 2, Task 2.1 — Closed-system ringdown (Track B, 10^5 cycles).
+"""Closed interval ringdown in the diagonal mode approximation.
 
 Closed cavity: N_modes=256, M=1e4, v0=1e-3, k=0.
-No spring, no open boundary — pure vacuum friction in a closed box.
-
-Expected outcome: plate kinetic energy depletes via dynamical Casimir
-photon creation. Ringdown curve saved to HDF5 for fitting.
+The run measures energy exchange between a mechanical coordinate and independent
+parametric field oscillators. It omits moving basis intermode couplings, so a
+decay fit is a property of this reduced Hamiltonian rather than a quantitative
+prediction of dynamical Casimir friction.
 
 Usage:
     python -m experiments.run_closed_ringdown [--quick]

@@ -38,9 +38,12 @@ from nothing_engine.core.bogoliubov import (
 )
 from nothing_engine.core import energy as energy_mod
 from nothing_engine.core import mode_space
+from nothing_engine.core import radiation_pressure
 from scipy.integrate import solve_ivp
 
 logger = logging.getLogger(__name__)
+
+MODEL_REVISION = "0.4.0"
 
 
 @dataclass
@@ -62,6 +65,7 @@ def _create_output_file(path: Path, sim_cfg: SimulationConfig,
                         run_cfg: RunConfig) -> h5py.File:
     """Create the HDF5 output file with datasets and metadata."""
     f = h5py.File(path, "w")
+    f.attrs["model_revision"] = MODEL_REVISION
 
     # Store configs as attributes
     g = f.create_group("config")
@@ -83,6 +87,8 @@ def _create_output_file(path: Path, sim_cfg: SimulationConfig,
     ts.create_dataset("plate_v", shape=(0,), maxshape=maxshape, dtype="f8")
     ts.create_dataset("E_plate", shape=(0,), maxshape=maxshape, dtype="f8")
     ts.create_dataset("E_spring", shape=(0,), maxshape=maxshape, dtype="f8")
+    ts.create_dataset("E_excitation", shape=(0,), maxshape=maxshape, dtype="f8")
+    ts.create_dataset("E_casimir", shape=(0,), maxshape=maxshape, dtype="f8")
     ts.create_dataset("E_field", shape=(0,), maxshape=maxshape, dtype="f8")
     ts.create_dataset("E_total", shape=(0,), maxshape=maxshape, dtype="f8")
     ts.create_dataset("total_particles", shape=(0,), maxshape=maxshape, dtype="f8")
@@ -121,6 +127,8 @@ def _append_observables(f: h5py.File, t_pts: NDArray, y_pts: NDArray,
     e_plate = 0.5 * sim_cfg.plate_mass * v_arr**2
     e_spring = 0.5 * sim_cfg.spring_k * (q_arr - sim_cfg.q_eq)**2
 
+    e_excitation = np.empty(n_pts)
+    e_casimir = np.empty(n_pts)
     e_field = np.empty(n_pts)
     n_total = np.empty(n_pts)
     f_field = np.empty(n_pts)
@@ -132,13 +140,25 @@ def _append_observables(f: h5py.File, t_pts: NDArray, y_pts: NDArray,
     for i in range(n_pts):
         ms = y_pts[:idx, i]
         a = q_arr[i] - sim_cfg.x_left
-        e_field[i] = energy_mod.field_energy(ms, n_modes, a, g_n, sim_cfg.ns_pi)
-        pn = mode_space.particle_number(ms, n_modes, a, g_n, sim_cfg.ns_pi)
+        components = energy_mod.energy_components(
+            ms, n_modes, a,
+            sim_cfg.plate_mass, float(v_arr[i]),
+            sim_cfg.spring_k, float(q_arr[i]), sim_cfg.q_eq,
+            g_n, sim_cfg.ns_pi,
+            sim_cfg.boundary, sim_cfg.mode_degeneracy,
+        )
+        e_excitation[i] = components["E_excitation"]
+        e_casimir[i] = components["E_casimir"]
+        e_field[i] = components["E_field"]
+        pn = sim_cfg.mode_degeneracy * mode_space.particle_number(
+            ms, n_modes, a, g_n, sim_cfg.ns_pi,
+        )
         pn_arr[i] = pn
         n_total[i] = float(np.sum(pn))
-        # Force = sum g_n * (n^2*pi^2 / a^3) * |f_n|^2
-        f_sq = mode_space.extract_mode_amplitudes_squared(ms, n_modes)
-        f_field[i] = float(np.dot(ns_pi_sq_g, f_sq)) / (a**3)
+        f_field[i] = radiation_pressure.renormalized_field_force(
+            ms, n_modes, a, ns_pi_sq_g, sim_cfg.ns_pi, g_n,
+            sim_cfg.boundary, sim_cfg.mode_degeneracy,
+        )
 
     e_total = e_plate + e_spring + e_field
 
@@ -146,8 +166,17 @@ def _append_observables(f: h5py.File, t_pts: NDArray, y_pts: NDArray,
     old_len = ts["t"].shape[0]
     new_len = old_len + n_pts
 
+    for name in ("E_excitation", "E_casimir"):
+        if name not in ts:
+            ds = ts.create_dataset(
+                name, shape=(old_len,), maxshape=(None,), dtype="f8",
+            )
+            ds[:] = np.nan
+
     for name, data in [("t", t_pts), ("plate_q", q_arr), ("plate_v", v_arr),
                        ("E_plate", e_plate), ("E_spring", e_spring),
+                       ("E_excitation", e_excitation),
+                       ("E_casimir", e_casimir),
                        ("E_field", e_field), ("E_total", e_total),
                        ("total_particles", n_total), ("force_field", f_field)]:
         ds = ts[name]
@@ -172,7 +201,7 @@ def _save_checkpoint(f: h5py.File, t: float, state: NDArray, seg_idx: int):
 
 
 class ExperimentRunner:
-    """Runs a long Track B simulation in segments, streaming to HDF5."""
+    """Runs a long reduced-mode simulation in segments, streaming to HDF5."""
 
     def __init__(self, sim_cfg: SimulationConfig, run_cfg: RunConfig,
                  output_path: str,
@@ -198,13 +227,21 @@ class ExperimentRunner:
         self._seg_idx = start_segment
         self._last_checkpoint_t = start_time
         # True only when constructed via from_checkpoint. Decides append-vs-recreate in
-        # run() — never key that off seg_idx, which is 0 for a crash-before-first-checkpoint.
+        # run(): never key that off seg_idx, which is 0 for a crash-before-first-checkpoint.
         self._is_resume = is_resume
 
     @classmethod
     def from_checkpoint(cls, hdf5_path: str) -> "ExperimentRunner":
         """Resume a run from the last checkpoint in an existing HDF5 file."""
         with h5py.File(hdf5_path, "r") as f:
+            revision = str(f.attrs.get("model_revision", "legacy"))
+            if revision != MODEL_REVISION:
+                raise ValueError(
+                    "Checkpoint model revision "
+                    f"{revision!r} cannot resume under {MODEL_REVISION!r}. "
+                    "The static force, periodic degeneracy, and cutoff defaults "
+                    "changed. Analyze the old file as-is or rerun it."
+                )
             cfg_grp = f["config"]
 
             # Physics-affecting fields must round-trip or the resumed run silently
@@ -277,8 +314,13 @@ class ExperimentRunner:
         e_spring = 0.5 * cfg.spring_k * (q - cfg.q_eq) ** 2
         if a > 0.0:
             ms = self._state[:idx]
-            e_field = energy_mod.field_energy(ms, n, a, cfg.g_n, cfg.ns_pi)
-            n_total = mode_space.total_particle_number(ms, n, a, cfg.g_n, cfg.ns_pi)
+            e_field = energy_mod.field_energy(
+                ms, n, a, cfg.g_n, cfg.ns_pi,
+                cfg.boundary, cfg.mode_degeneracy,
+            )
+            n_total = mode_space.total_particle_number(
+                ms, n, a, cfg.g_n, cfg.ns_pi, cfg.mode_degeneracy,
+            )
             e_total = e_plate + e_spring + e_field
         else:
             e_field = e_total = n_total = float("nan")
@@ -304,7 +346,7 @@ class ExperimentRunner:
         wall_start = time.time()
 
         # Create or open output file. Append whenever we were built from a checkpoint,
-        # even if the only checkpoint was the initial seg-0 one — keying off seg_idx>0
+        # even if the only checkpoint was the initial seg-0 one: keying off seg_idx>0
         # would truncate streamed data on a crash-before-first-checkpoint restart.
         is_restart = self._is_resume
         if is_restart:

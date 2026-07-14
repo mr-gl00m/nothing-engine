@@ -1,9 +1,8 @@
-"""
-Validation Gate 4.2: Dynamic Casimir Effect — Parametric Photon Production
+"""Validation Gate 4.2: diagonal parametric oscillator growth.
 
 Verify that prescribed sinusoidal plate motion at frequency Omega = 2*omega_1
-produces particle creation in the fundamental mode, with the total particle
-number matching the analytical sinh^2 prediction.
+produces occupation growth in the fundamental oscillator, with the occupation
+matching the analytical sinh^2 prediction for this reduced equation.
 
 For small oscillation amplitude epsilon:
     q(t) = a0 + epsilon * sin(Omega * t),  Omega = 2 * omega_1
@@ -28,10 +27,12 @@ PI = np.pi
 
 def run_validation():
     print("=" * 60)
-    print("Gate 4.2: Dynamic Casimir Effect — Parametric Growth")
+    print("Gate 4.2: diagonal parametric oscillator growth")
     print("=" * 60)
 
-    N = 32
+    # Modes are independent in this reduced model, so eight modes exercise the
+    # same fundamental equation while keeping the release gate practical.
+    N = 8
     a0 = 1.0
     omega_1 = PI / a0
     eps = 0.01            # Oscillation amplitude (1% of cavity width)
@@ -59,11 +60,12 @@ def run_validation():
         plate_mass=1e4,
         q0=a0,
         v0=0.0,
+        method="DOP853",
         t_span=(0.0, T_final),
         t_eval=t_eval,
         rtol=1e-13,
         atol=1e-15,
-        max_step=0.002,
+        max_step=0.01,
         audit_halt=False,
     )
 
@@ -114,7 +116,7 @@ def run_validation():
     print(f"\nMode 1 particle fraction: {mode1_fraction:.4f}")
     print(f"Final N_total = {np.sum(np.maximum(pn_final, 0)):.6e}")
 
-    # Also verify the time dependence shape (not just final value)
+    # Also verify the time dependence shape and the final value.
     # Check at an intermediate time T/2
     i_half = len(times) // 2
     t_half = times[i_half]

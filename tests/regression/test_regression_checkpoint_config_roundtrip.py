@@ -2,12 +2,14 @@
 #   plate_thickness and cutoff_shape (runner._create_output_file writes them). A run resumed
 #   via ExperimentRunner.from_checkpoint must reconstruct the SAME physics.
 # Violation: from_checkpoint passes only n_modes, plate_mass, spring_k, q0, v0, x_left, method,
-#   rtol, atol, max_step to SimulationConfig — it omits boundary, plate_thickness and cutoff_shape.
+#   rtol, atol, max_step to SimulationConfig: it omits boundary, plate_thickness and cutoff_shape.
 #   A resumed "periodic" run silently reverts to the "closed" default (omega_n = n*pi/a instead of
 #   2*n*pi/a), corrupting the physics of the paper's central topology experiments on restart.
-# Predicted failure: AssertionError — reconstructed cfg.boundary == "closed", not "periodic"
+# Predicted failure: AssertionError: reconstructed cfg.boundary == "closed", not "periodic"
 #   (and ns_pi differs by a factor of 2).
 import numpy as np
+import h5py
+import pytest
 from nothing_engine.core.bogoliubov import SimulationConfig, build_initial_state
 from nothing_engine.experiments.runner import (
     ExperimentRunner, RunConfig, _create_output_file, _save_checkpoint,
@@ -35,3 +37,19 @@ def test_repro_checkpoint_drops_boundary(tmp_path):
         f"{runner.sim_cfg.boundary!r}; ns_pi[0]={runner.sim_cfg.ns_pi[0]:.6f} "
         f"(expected {2*np.pi:.6f} for periodic, got the closed value {np.pi:.6f})"
     )
+
+
+def test_legacy_physics_checkpoint_is_rejected(tmp_path):
+    """A pre-0.4 state cannot resume under the corrected force law."""
+    cfg = SimulationConfig(n_modes=4)
+    rc = RunConfig(total_time=1.0, segment_time=1.0)
+    path = tmp_path / "legacy.h5"
+
+    f = _create_output_file(path, cfg, rc)
+    _save_checkpoint(f, 0.0, build_initial_state(cfg), 0)
+    f.close()
+    with h5py.File(path, "a") as f:
+        del f.attrs["model_revision"]
+
+    with pytest.raises(ValueError, match="cannot resume"):
+        ExperimentRunner.from_checkpoint(str(path))

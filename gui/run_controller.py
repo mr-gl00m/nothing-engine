@@ -109,7 +109,7 @@ class RunController(QObject):
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
-            # Not JSON (stray print) — forward to the log so nothing is lost.
+            # Not JSON (stray print): forward to the log so nothing is lost.
             self.log.emit(line)
             return
         event = obj.get("event")
@@ -149,5 +149,5 @@ class RunController(QObject):
         elif exit_code != 0:
             self.failed.emit(f"run_single exited with code {exit_code}")
         else:
-            # Clean exit but no done event — treat as finished with unknown status.
+            # Clean exit but no done event: treat as finished with unknown status.
             self.finished.emit(self._final_status, self._final_path)

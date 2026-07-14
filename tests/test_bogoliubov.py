@@ -1,10 +1,10 @@
-"""Tests for core/bogoliubov.py — the main Track B simulation engine.
+"""Tests for core/bogoliubov.py: the main Track B simulation engine.
 
 These tests verify:
 1. State packing/unpacking roundtrip
 2. Static plate produces zero particles (Gate 4.7)
 3. Energy conservation for coupled dynamics (Gate 4.3)
-4. Dynamic Casimir effect with prescribed motion (Gate 4.2)
+4. Diagonal parametric oscillator growth with prescribed motion (Gate 4.2)
 5. Adiabatic limit (Gate 4.6)
 6. Wronskian conservation (independent integrator check)
 """
@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from core import mode_space
+from core import constants, mode_space
 from core import energy as energy_mod
 from core.bogoliubov import (
     SimulationConfig, SimulationResult,
@@ -58,14 +58,21 @@ class TestStatePacking:
         assert q == cfg.q0
         assert v == cfg.v0
 
+    def test_ideal_spectrum_is_default(self):
+        cfg = SimulationConfig(n_modes=32, plate_thickness=0.0, t_span=(0, 1))
+        assert np.isinf(cfg.n_cutoff)
+        np.testing.assert_array_equal(cfg.g_n, np.ones(cfg.n_modes))
+
+    def test_periodic_positive_modes_have_twofold_degeneracy(self):
+        cfg = SimulationConfig(n_modes=8, boundary="periodic", t_span=(0, 1))
+        assert cfg.mode_degeneracy == 2
+
 
 class TestStaticPlate:
     """Gate 4.7: Truly static plate (prescribed motion) should create zero particles.
 
-    NOTE: With v0=0 and k=0, the unbalanced truncated vacuum force
-    (~N^2) accelerates the plate, creating particles. This is a UV
-    artifact, not a physics bug. To test the true "static plate"
-    condition, we use prescribed motion to hold the plate fixed.
+    A free plate accelerates under the regularized static Casimir attraction.
+    Prescribed motion holds the boundary fixed for this baseline test.
     """
 
     def test_prescribed_static_zero_particles(self):
@@ -126,6 +133,41 @@ class TestStaticPlate:
             w = mode_space.wronskian(ms, N)
             np.testing.assert_allclose(w, -0.5, rtol=1e-9,
                 err_msg=f"Wronskian drift at t={result.t[i]:.2f}")
+
+    @pytest.mark.parametrize("boundary", ["closed", "periodic"])
+    def test_vacuum_has_static_casimir_energy_and_force(self, boundary):
+        """Production paths include the regularized static interaction."""
+        cfg = SimulationConfig(
+            n_modes=24,
+            plate_mass=5.0,
+            q0=1.4,
+            v0=0.0,
+            boundary=boundary,
+            plate_thickness=0.0,
+            t_span=(0.0, 0.1),
+        )
+        state = build_initial_state(cfg)
+        mode_state = state[:4 * cfg.n_modes]
+        components = energy_mod.energy_components(
+            mode_state, cfg.n_modes, cfg.q0,
+            cfg.plate_mass, 0.0,
+            cfg.spring_k, cfg.q0, cfg.q_eq,
+            cfg.g_n, cfg.ns_pi,
+            cfg.boundary, cfg.mode_degeneracy,
+        )
+        derivative = make_rhs(cfg)(0.0, state)
+
+        np.testing.assert_allclose(components["E_excitation"], 0.0, atol=1e-12)
+        np.testing.assert_allclose(
+            components["E_field"],
+            constants.casimir_energy_1d(cfg.q0, boundary),
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            cfg.plate_mass * derivative[-1],
+            constants.casimir_force_1d(cfg.q0, boundary),
+            atol=1e-12,
+        )
 
 
 class TestEnergyConservation:
@@ -190,7 +232,7 @@ class TestEnergyConservation:
         assert s["passed"], f"Audit failed: max_drift={s['max_drift']:.2e}"
 
 
-class TestDynamicCasimirEffect:
+class TestDiagonalParametricGrowth:
     """Gate 4.2: Prescribed oscillation at 2*omega_1 produces parametric amplification."""
 
     def test_parametric_growth(self):
@@ -277,10 +319,9 @@ class TestEquilibrium:
     def test_spring_rest_length_is_q0(self):
         """q_eq is the spring rest length, which equals q0 for any k.
 
-        Under renormalization the field force F_field = F_raw - F_vac is zero at the
-        vacuum state, so q0 is already the mechanical equilibrium and no offset is
-        applied. The un-renormalized truncated vacuum force (~N^2) does NOT enter q_eq;
-        an earlier version of this test wrongly expected q0 + F_trunc/k (BH-2026-06-03-003).
+        The regularized Casimir force remains active, so q0 is generally not the
+        coupled equilibrium. Solving that nonlinear equilibrium is left to the
+        caller because q_eq names the spring rest coordinate.
         """
         N = 32
         k = 100.0

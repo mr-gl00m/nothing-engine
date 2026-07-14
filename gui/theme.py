@@ -8,7 +8,7 @@ from PySide6.QtGui import QColor
 
 # Single source of truth for the highlight color. Plots read ACCENT too.
 ACCENT = "#4fc3f7"      # cyan
-ACCENT_2 = "#ffb74d"    # amber — secondary plot curves
+ACCENT_2 = "#ffb74d"    # amber: secondary plot curves
 BG = "#1e1f22"
 BG_ELEVATED = "#2b2d31"
 FG = "#e4e6eb"

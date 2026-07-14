@@ -1,15 +1,15 @@
-"""
-Topology comparison experiment: closed vs periodic ringdown.
+"""Historical equal-coordinate boundary sensitivity experiment.
 
 Runs identical physics (M=100, v0=0.01, N=128, form factor) with
-two boundary conditions to test whether ring topology produces
-qualitatively different vacuum friction.
+two boundary conditions while holding the coordinate size fixed.
 
 Closed:   Dirichlet walls, standing waves, omega_n = n*pi/a
-Periodic: Ring topology, traveling waves, omega_n = 2*n*pi/L
+Periodic: Compact scalar circle, omega_n = 2*n*pi/L, degeneracy two
 
-This is the paper's central result: does boundary topology change
-the character of vacuum friction (e.g. power-law vs exponential)?
+The spectra differ by a factor of two, so this run cannot isolate topology. It
+is retained to reproduce the original comparison. Use run_topology_v2 for the
+frequency matched sensitivity study. Neither script includes moving basis
+intermode couplings.
 
 Usage:
     python -m nothing_engine.experiments.run_topology_comparison [--quick]
@@ -78,7 +78,7 @@ def summarize_results(configs):
     """Print comparison table from completed HDF5 files."""
     print()
     print("=" * 70)
-    print("  TOPOLOGY COMPARISON RESULTS")
+    print("  HISTORICAL UNMATCHED BOUNDARY COMPARISON")
     print("=" * 70)
 
     # Try to import ringdown fitting
@@ -155,6 +155,8 @@ def summarize_results(configs):
 
 def main():
     mode = "quick" if "--quick" in sys.argv else "standard"
+
+    print("WARNING: equal coordinate size leaves the spectra unmatched.")
 
     configs = make_configs(mode)
 

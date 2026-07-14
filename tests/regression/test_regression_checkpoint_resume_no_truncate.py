@@ -34,6 +34,6 @@ def test_repro_seg0_resume_truncates(tmp_path):
 
     with h5py.File(path, "r") as g:
         assert "sentinel" in g.attrs, (
-            "output file was recreated (mode 'w') on resume from a seg-0 checkpoint — "
+            "output file was recreated (mode 'w') on resume from a seg-0 checkpoint: "
             "previously streamed data was truncated/lost"
         )

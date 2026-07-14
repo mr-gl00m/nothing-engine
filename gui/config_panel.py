@@ -35,7 +35,7 @@ FIELD_SPECS = [
     ("Physics", "v0", "Initial velocity v0", "float", _SIM.v0, None),
     ("Physics", "x_left", "Left wall x_L", "float", _SIM.x_left, None),
     ("Physics", "boundary", "Boundary", "choice", _SIM.boundary, ["closed", "periodic"]),
-    ("Physics", "plate_thickness", "Plate thickness (0=auto)", "float", _SIM.plate_thickness, None),
+    ("Physics", "plate_thickness", "Spectral scale (0=off)", "float", _SIM.plate_thickness, None),
     ("Physics", "cutoff_shape", "Cutoff shape", "choice", _SIM.cutoff_shape, ["sigmoid", "gaussian"]),
 
     ("Integrator", "method", "Method", "choice", _SIM.method,

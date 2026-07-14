@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Nothing Engine — Control Panel")
+        self.setWindowTitle("Nothing Engine: Control Panel")
         self.resize(1280, 820)
 
         self.config_panel = ConfigPanel()
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         try:
             params = self.config_panel.get_config()
         except ValueError as exc:
-            self._set_status(f"Bad input — {exc}")
+            self._set_status(f"Bad input: {exc}")
             return
         out = self.config_panel.output_path()
         if not out:
@@ -146,12 +146,12 @@ class MainWindow(QMainWindow):
         self.progress.setValue(100 if status == "completed" else self.progress.value())
         self._set_status(f"Run {status}")
         if path and Path(path).exists():
-            self._set_status(f"Run {status} — loading results…")
+            self._set_status(f"Run {status}: loading results…")
             self.loader.load(path)
 
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
-        self._set_status(f"Failed — {message}")
+        self._set_status(f"Failed: {message}")
         self._append_log(f"ERROR: {message}")
 
     # -- results ------------------------------------------------------------

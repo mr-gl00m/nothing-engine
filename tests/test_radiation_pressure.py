@@ -1,4 +1,4 @@
-"""Tests for core/radiation_pressure.py — field force computation."""
+"""Tests for core/radiation_pressure.py: field force computation."""
 
 import numpy as np
 import pytest
@@ -38,6 +38,16 @@ class TestStaticCasimirForce:
     def test_regularized_negative(self):
         """Physical Casimir force is attractive (negative)."""
         assert rp.static_casimir_force_regularized(1.0) < 0
+
+    def test_periodic_regularized_formula(self):
+        """A real periodic scalar has F = -pi/(6*L^2)."""
+        length = 1.7
+        expected = -PI / (6.0 * length**2)
+        np.testing.assert_allclose(
+            rp.static_casimir_force_regularized(length, "periodic"),
+            expected,
+            rtol=1e-14,
+        )
 
 
 class TestFieldForce:
@@ -80,3 +90,26 @@ class TestFieldForce:
         F1 = rp.field_force_track_b(ic, N, a0, ns_pi_sq)
         F2 = rp.field_force_track_b_from_fsq(f_sq, a0, ns_pi_sq)
         np.testing.assert_allclose(F1, F2, rtol=1e-14)
+
+    @pytest.mark.parametrize(
+        ("boundary", "degeneracy", "coefficient"),
+        [("closed", 1, PI), ("periodic", 2, 2.0 * PI)],
+    )
+    def test_renormalized_vacuum_force(self, boundary, degeneracy, coefficient):
+        """Finite vacuum subtraction leaves the analytic static force."""
+        n_modes = 20
+        size = 1.3
+        ns = np.arange(1, n_modes + 1)
+        ns_pi = coefficient * ns
+        ns_pi_sq = ns_pi**2
+        g_n = np.ones(n_modes)
+        state = mode_space.vacuum_initial_conditions(
+            n_modes, size, g_n, ns_pi,
+        )
+        measured = rp.renormalized_field_force(
+            state, n_modes, size,
+            ns_pi_sq, ns_pi, g_n,
+            boundary, degeneracy,
+        )
+        expected = rp.static_casimir_force_regularized(size, boundary)
+        np.testing.assert_allclose(measured, expected, atol=1e-12)

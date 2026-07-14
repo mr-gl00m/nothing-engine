@@ -1,4 +1,4 @@
-"""Tests for core/mode_space.py — cavity mode decomposition."""
+"""Tests for core/mode_space.py: cavity mode decomposition."""
 
 import numpy as np
 import pytest

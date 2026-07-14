@@ -4,8 +4,8 @@ particle_number must be evaluated with the SAME form factor the vacuum state was
 with (cfg.g_n / cfg.ns_pi). Gate 4.7 (val_residual_baseline), val_dynamic_casimir, and two
 unit tests previously omitted those arguments, so they measured the form-factor vacuum
 against ideal-Dirichlet frequencies and reported a spurious ~1e-5 "vacuum particle" floor
-(N=64), tripping Gate 4.7's own 1e-9 threshold. Audit evidence — including the original
-footgun demonstration — is at .bugs/BH-2026-06-03-002/.
+(N=64), tripping Gate 4.7's own 1e-9 threshold. Audit evidence: including the original
+footgun demonstration: is at .bugs/BH-2026-06-03-002/.
 """
 
 import numpy as np
@@ -17,9 +17,11 @@ from nothing_engine.core import mode_space
 
 
 def test_formfactor_consistent_vacuum_is_zero():
-    # N=64 with the default form factor active — Gate 4.7's configuration.
+    # N=64 with the phenomenological spectral weight explicitly active.
     N = 64
-    cfg = SimulationConfig(n_modes=N, q0=1.0, v0=0.0)
+    cfg = SimulationConfig(
+        n_modes=N, q0=1.0, v0=0.0, plate_thickness=0.01,
+    )
     assert not np.allclose(cfg.g_n, 1.0), "form factor must be genuinely active for this test"
 
     y0 = build_initial_state(cfg)
@@ -35,7 +37,11 @@ def test_formfactor_consistent_vacuum_is_zero():
 def test_result_particle_number_at_uses_form_factor():
     # The canonical SimulationResult path that the validation gates must mirror.
     N = 48
-    cfg = SimulationConfig(n_modes=N, q0=1.0, v0=0.0, t_span=(0.0, 1.0), max_step=0.05)
+    cfg = SimulationConfig(
+        n_modes=N, q0=1.0, v0=0.0,
+        plate_thickness=0.01,
+        t_span=(0.0, 1.0), max_step=0.05,
+    )
     result = run_simulation(cfg, prescribed_motion=(lambda t: cfg.q0, lambda t: 0.0))
     pn0 = result.particle_number_at(0)
     assert np.max(np.abs(pn0)) < 1e-12, (

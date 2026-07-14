@@ -32,7 +32,7 @@ def test_ringdown_results_api_is_usable_for_summary():
 
 
 def test_ringdown_results_not_iterable():
-    # Documents why min(fits, ...) / fits[i] fail — guards against reintroducing them.
+    # Documents why min(fits, ...) / fits[i] fail: guards against reintroducing them.
     t = np.linspace(0.0, 10.0, 50)
     fits = fit_ringdown(t, np.exp(-t))
     with pytest.raises(TypeError):

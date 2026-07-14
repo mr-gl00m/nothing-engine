@@ -1,18 +1,9 @@
-"""
-Phase 2, Task 2.2 — Open-system ringdown (Track B, 10^5 cycles).
+"""Large finite cavity proxy retained for historical reproducibility.
 
-Open cavity approximation: same physics as closed, but with an extended
-mode space representing a large box (L_domain >> a0). The extra modes
-act as a photon reservoir — radiation can escape the cavity region.
-
-The "open" system is modeled by placing the right boundary far away
-(large q0) while keeping the left wall at x_left=0. The plate starts
-at q0_plate (the physical cavity width), and the modes span the full
-domain [0, L_domain]. Modes with wavelength >> a0 couple weakly and
-act as the external vacuum reservoir.
-
-Per PRE_REGISTRATION.md §5.1:
-    Same parameters as closed, extended mode space for large-box approximation.
+This entry point does not implement an open boundary, an external continuum, or
+outgoing flux. It places the moving coordinate at the end of a larger closed
+Dirichlet interval. Reflections remain in the model. Results can probe box size
+sensitivity in the diagonal approximation and cannot establish radiation loss.
 
 Usage:
     python -m experiments.run_open_ringdown [--quick]
@@ -38,14 +29,13 @@ def main():
     elif "--light" in sys.argv:
         mode = "light"
 
-    # Open-system strategy: large-box approximation.
-    # Physical cavity width a0 = 1.0, but domain is L_domain.
+    # Large finite box sensitivity study.
     # Mode frequencies are omega_n = n*pi/L_domain, so we need
     # N_modes_open = N_modes_closed * (L_domain / a0) to match UV cutoff.
 
     if mode == "light":
-        # Light plate, large domain — matches closed light-plate for comparison
-        L_domain = 20.0  # 20x cavity width for clean radiation escape
+        # Light plate in a larger finite interval.
+        L_domain = 20.0
         n_modes_open = 128 * 20  # 2560 modes to match closed UV cutoff
         sim_cfg = SimulationConfig(
             n_modes=n_modes_open,
@@ -109,7 +99,8 @@ def main():
         )
         output_path = "data/experiments/open_ringdown.h5"
 
-    print(f"=== Open-System Ringdown ({mode}) ===")
+    print(f"=== Large Finite Cavity Proxy ({mode}) ===")
+    print("  WARNING: this is a closed box and has no outgoing flux boundary.")
     print(f"  Modes: {sim_cfg.n_modes}")
     print(f"  Domain size: {sim_cfg.q0}")
     print(f"  Mass: {sim_cfg.plate_mass}")

@@ -128,13 +128,13 @@ class ResultsView(QTabWidget):
         rd = data.get("ringdown")
         if rd is not None:
             self._ringdown.plot(rd["fit_t"], rd["fit_y"], pen=_pen(ACCENT_2, 2), name=f"fit: {rd['best_model']}")
-            title = f"Ringdown — best model: {rd['best_model']}"
+            title = f"Ringdown: best model: {rd['best_model']}"
             ci = rd.get("gamma_ci")
             if ci is not None:
-                title += f"   γ = {ci[0]:.4g}  (95% CI {ci[1]:.4g}–{ci[2]:.4g})"
+                title += f"   γ = {ci[0]:.4g}  (95% CI {ci[1]:.4g} to {ci[2]:.4g})"
             self._ringdown.setTitle(title)
         else:
-            self._ringdown.setTitle("Ringdown — fit unavailable")
+            self._ringdown.setTitle("Ringdown: fit unavailable")
 
         # Energy components + conservation drift
         for key in ("E_plate", "E_spring", "E_field", "E_total"):
@@ -155,4 +155,4 @@ class ResultsView(QTabWidget):
             self._psd.plot(psd["freqs"], psd["psd"], pen=_pen(ACCENT))
             self._psd.setTitle("Post-ringdown velocity PSD")
         else:
-            self._psd.setTitle("PSD — no post-ringdown window")
+            self._psd.setTitle("PSD: no post-ringdown window")

@@ -1,4 +1,4 @@
-"""Tests for core/energy_audit.py — conservation monitoring."""
+"""Tests for core/energy_audit.py: conservation monitoring."""
 
 import numpy as np
 import pytest
