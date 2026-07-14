@@ -6,6 +6,44 @@ All notable changes to this project will be documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-13
+
+Scientific correction and postmortem release.
+
+### Changed
+
+- Replaced the original paper with a revised thermodynamic analysis, corrected
+  phase change energy budget, software audit, and final disposition of the
+  equilibrium harvester claim.
+- Added a research bank for halo geometry, fluid mediated repulsive devices, and
+  the nonequilibrium concentric cylinder heat engine.
+- Narrowed the engine description to a diagonal parametric mode approximation.
+  A quantitative moving cavity solver still requires velocity dependent
+  intermode coupling.
+- Disabled the phenomenological high mode spectral weight by default.
+- Relabeled the large finite box and topology scripts to state their actual
+  numerical scope.
+
+### Fixed
+
+- Restored the regularized static Casimir energy and matching force after finite
+  oscillator vacuum subtraction.
+- Added the twofold periodic mode degeneracy to energy, force, occupation, and
+  saved observables.
+- Changed vacuum cancellation to occur per mode, reducing floating point loss at
+  high mode count.
+- Replaced the old analytic self comparison in Gate 4.1 with checks against the
+  production field energy and ODE acceleration paths.
+- Changed saved `force_field` data to the renormalized force used by the ODE.
+- Added a model revision marker and reject legacy checkpoint resume across the
+  corrected physics boundary.
+
+### Added
+
+- Separate `E_excitation` and `E_casimir` HDF5 time series.
+- Static energy and force tests for closed and periodic boundary models.
+- Release notes documenting the retracted claims and compatibility changes.
+
 ## [0.3.0] - 2026-06-06
 
 Adds a desktop GUI and a machine-readable single-run CLI on top of the existing
@@ -14,10 +52,10 @@ definitions are untouched. The GUI runs the solver out-of-process, so a crash in
 a long run can't take the window down with it.
 
 ### Highlights
-- **Desktop control panel** (`nothing-engine-gui`) — set every parameter in a
+- **Desktop control panel** (`nothing-engine-gui`): set every parameter in a
   form, launch a run, watch plate energy and particle number stream live, then
   browse ringdown / energy / particle-spectrum / PSD results in the same window.
-- **`run_single` CLI** — one experiment, every config field as a flag, progress
+- **`run_single` CLI**: one experiment, every config field as a flag, progress
   emitted as one JSON object per line on stdout. It's what the GUI shells out to,
   but it stands alone for scripting and batch runs.
 - **Packaging fix:** the build backend was set to an invalid value that would
@@ -35,12 +73,12 @@ a long run can't take the window down with it.
   straight into the Results view. Dark theme, high-DPI-aware, rotating-file
   logging to `logs/gui.log`, and uncaught exceptions are captured to the log.
   Pulled in via a new `gui` optional-dependency group (`PySide6`, `pyqtgraph`):
-  `pip install -e ".[gui]"`.
+  `uv sync --extra gui`.
 - **`run_single` experiment entrypoint** (`python -m nothing_engine.experiments.run_single`).
   Exposes every physics, integrator, energy-audit, and run-control parameter as a
   CLI flag, runs one `ExperimentRunner`, and streams one JSON event per line to
   stdout (`progress` / `done` / `error`) while the human-readable log stays on
-  stderr — so stdout is a clean machine-readable stream.
+  stderr: so stdout is a clean machine-readable stream.
 - **`progress_callback` hook on `ExperimentRunner`.** An optional
   `Callable[[dict], None]` that receives a per-segment snapshot (time, percent,
   segment index, energy components, total particle number, wall time, status).
@@ -56,7 +94,7 @@ a long run can't take the window down with it.
 ### Fixed
 - **Invalid build backend.** `pyproject.toml` declared
   `build-backend = "setuptools.backends._legacy:_Backend"`, which is not a real
-  backend — a clean `pip install` or `python -m build` would fail. Now
+  backend: a clean package build would fail. Now
   `setuptools.build_meta`.
 - **`EnergyAuditor.check` could fail with a confusing error if `set_reference`
   was skipped.** The guard now also checks the tolerance was set, so the clear
@@ -66,23 +104,24 @@ a long run can't take the window down with it.
 - Type-safety pass: added `pyrightconfig.json`, corrected `NDArray = None`
   defaults to `NDArray | None = None` across `energy.py` and `mode_space.py`, and
   confined `# pyright:` suppressions to the h5py/scipy/pyqtgraph stub-driven I/O
-  glue — the physics core keeps full type checking.
+  glue: the physics core keeps full type checking.
 - New tests: `test_gui_smoke.py` (GUI bootstrap), `test_run_single.py` (JSON
   stream + CLI), `test_runner_callback.py` (progress hook).
 - `logs/` added to `.gitignore`.
 
-[Unreleased]: https://github.com/mr-gl00m/nothing-engine/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mr-gl00m/nothing-engine/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mr-gl00m/nothing-engine/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mr-gl00m/nothing-engine/compare/v0.2.1...v0.3.0
 
 ## [0.1.1] - 2026-06-03
 
 Correctness patch. No new features and no changes to the ODE evolution, force law, or
-energy definitions — those were audited and left untouched. Every fix is in the
+energy definitions: those were audited and left untouched. Every fix is in the
 checkpoint/restart path, the standalone validation-gate scripts, the topology summary,
 or the post-ringdown analysis windowing. Each fix ships with a regression test.
 
 ### Highlights
-- Validation Gate 4.7 (static-plate residual baseline) now actually passes — it was
+- Validation Gate 4.7 (static-plate residual baseline) now actually passes: it was
   reporting a spurious ~1e-5 "vacuum particle" floor caused by a form-factor mismatch in
   the gate script, not by the physics.
 - Resuming a long run from a checkpoint no longer silently changes physics or truncates
@@ -95,7 +134,7 @@ or the post-ringdown analysis windowing. Each fix ships with a regression test.
   is built with the plate-thickness form factor (`g_n`), but `val_residual_baseline` (Gate
   4.7), `val_dynamic_casimir`, and two unit tests called `particle_number` without it,
   measuring against ideal-Dirichlet frequencies and reporting a spurious ~1e-5 particle
-  floor (N=64) — enough to falsely fail Gate 4.7. Saved HDF5 data was unaffected; the
+  floor (N=64): enough to falsely fail Gate 4.7. Saved HDF5 data was unaffected; the
   production streaming pipeline already passed the form factor.
 - **Checkpoint resume silently reverted physics.** `ExperimentRunner.from_checkpoint`
   rebuilt `SimulationConfig` without `boundary`, `plate_thickness`, or `cutoff_shape`, so a
@@ -108,7 +147,7 @@ or the post-ringdown analysis windowing. Each fix ships with a regression test.
   appends.
 - **Post-ringdown window collapsed on oscillating runs.** `find_post_ringdown_start` and
   `select_fitting_window` thresholded the instantaneous plate kinetic energy
-  `E_plate = ½Mv²`, which dips to ~0 at every velocity turning point — so a spring-restored
+  `E_plate = ½Mv²`, which dips to ~0 at every velocity turning point: so a spring-restored
   plate truncated the analysis window to the first quarter-period. Both now threshold the
   decay envelope (suffix-max). Monotonic (k=0) closed/open ringdown windows are unchanged.
 - **Topology fit table always showed `fit_failed`.** `run_topology_comparison`'s summary
