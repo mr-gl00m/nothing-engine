@@ -1,4 +1,4 @@
-"""Nothing Engine — Core simulation engine."""
+"""Nothing Engine: Core simulation engine."""
 
 from .constants import HBAR, C, PI
 from .plate import DynamicalPlate

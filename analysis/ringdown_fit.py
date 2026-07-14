@@ -58,9 +58,9 @@ def aic(n: int, k: int, rss: float) -> float:
 
     Parameters
     ----------
-    n : int  — number of data points
-    k : int  — number of free parameters
-    rss : float — residual sum of squares
+    n : int : number of data points
+    k : int : number of free parameters
+    rss : float: residual sum of squares
     """
     return n * np.log(rss / n) + 2 * k
 
@@ -97,7 +97,7 @@ def select_fitting_window(t: NDArray, e_plate: NDArray,
     below = envelope < threshold
     # Include at least up to the first crossing
     if not np.any(below):
-        # Envelope never dropped below threshold — use all data
+        # Envelope never dropped below threshold: use all data
         return t, e_plate
     first_below = int(np.argmax(below))
     return t[:first_below], e_plate[:first_below]
@@ -171,9 +171,9 @@ def fit_ringdown(t: NDArray, e_plate: NDArray,
 
     Parameters
     ----------
-    t : NDArray — time array
-    e_plate : NDArray — plate kinetic energy
-    threshold_frac : float — fitting window cutoff (default 5%)
+    t : NDArray: time array
+    e_plate : NDArray: plate kinetic energy
+    threshold_frac : float: fitting window cutoff (default 5%)
 
     Returns
     -------

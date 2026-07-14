@@ -34,11 +34,11 @@ def mode_indices(n_modes: int) -> NDArray[np.float64]:
 
 def form_factor(n_modes: int, n_cutoff: float,
                 shape: str = "sigmoid") -> NDArray[np.float64]:
-    """UV form factor modeling finite plate thickness.
+    """Phenomenological spectral weight for reduced model experiments.
 
-    Models the finite thickness of the plate: modes with n >> n_cutoff
-    (wavelength << plate thickness) do not see the plate as a hard
-    boundary and are suppressed.
+    This weight lowers the frequencies of high index oscillators. Finite mirror
+    thickness alone does not derive this Hamiltonian. A physical mirror model
+    requires frequency dependent reflection data and an open scattering basis.
 
     Parameters
     ----------
@@ -48,8 +48,8 @@ def form_factor(n_modes: int, n_cutoff: float,
         Cutoff mode number. Set to n_cutoff = a0/delta where delta
         is the plate thickness. Use np.inf to disable (ideal Dirichlet).
     shape : str
-        "gaussian" — exp(-(n/n_cutoff)^2). Gentle roll-off.
-        "sigmoid"  — 1/(1+exp((n - n_cutoff)/Delta_n)) with Delta_n = n_cutoff/10.
+        "gaussian": exp(-(n/n_cutoff)^2). Gentle roll-off.
+        "sigmoid" : 1/(1+exp((n - n_cutoff)/Delta_n)) with Delta_n = n_cutoff/10.
                      Sharp cutoff: ~1 for n < 0.8*n_cutoff, ~0 for n > 1.2*n_cutoff.
 
     Returns
@@ -248,9 +248,12 @@ def particle_number(mode_state: NDArray, n_modes: int,
 def total_particle_number(mode_state: NDArray, n_modes: int,
                           cavity_width: float,
                           g_n: NDArray | None = None,
-                          ns_pi: NDArray | None = None) -> float:
-    """N(t) = sum_n |beta_n|^2. Total particles created from vacuum."""
-    return float(np.sum(particle_number(mode_state, n_modes, cavity_width, g_n, ns_pi)))
+                          ns_pi: NDArray | None = None,
+                          degeneracy: int = 1) -> float:
+    """Total occupation represented by the stored positive mode indices."""
+    return float(degeneracy * np.sum(
+        particle_number(mode_state, n_modes, cavity_width, g_n, ns_pi)
+    ))
 
 
 def wronskian(mode_state: NDArray, n_modes: int) -> NDArray[np.float64]:

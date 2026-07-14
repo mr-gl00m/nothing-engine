@@ -78,10 +78,29 @@ def cavity_mode_frequency(n: int, cavity_width: float) -> float:
     return n * PI / cavity_width
 
 
-def casimir_energy_1d(cavity_width: float) -> float:
-    """Analytical Casimir energy for 1+1D scalar Dirichlet-Dirichlet.
+def _casimir_coefficient_1d(boundary: str) -> float:
+    """Return C in E_C = -C/a for the supported ideal scalar fields."""
+    if boundary == "closed":
+        return PI / 24.0
+    if boundary == "periodic":
+        return PI / 6.0
+    raise ValueError(f"Unsupported boundary condition: {boundary!r}")
 
-    E_Casimir = -π / (24a)
+
+def mode_degeneracy_1d(boundary: str) -> int:
+    """Return the degeneracy represented by each stored positive mode index."""
+    if boundary == "closed":
+        return 1
+    if boundary == "periodic":
+        return 2
+    raise ValueError(f"Unsupported boundary condition: {boundary!r}")
+
+
+def casimir_energy_1d(cavity_width: float, boundary: str = "closed") -> float:
+    """Analytical Casimir energy for an ideal massless scalar field.
+
+    Closed Dirichlet interval: E_C = -π/(24a).
+    Periodic circle: E_C = -π/(6L).
 
     Parameters
     ----------
@@ -93,13 +112,16 @@ def casimir_energy_1d(cavity_width: float) -> float:
     float
         Casimir energy (negative).
     """
-    return -PI / (24.0 * cavity_width)
+    if cavity_width <= 0.0:
+        raise ValueError("cavity_width must be positive")
+    return -_casimir_coefficient_1d(boundary) / cavity_width
 
 
-def casimir_force_1d(cavity_width: float) -> float:
-    """Analytical Casimir force for 1+1D scalar Dirichlet-Dirichlet.
+def casimir_force_1d(cavity_width: float, boundary: str = "closed") -> float:
+    """Analytical Casimir force for an ideal massless scalar field.
 
-    F_Casimir = -dE/da = -π / (24a²)
+    Closed Dirichlet interval: F_C = -π/(24a²).
+    Periodic circle: F_C = -π/(6L²).
 
     Parameters
     ----------
@@ -111,4 +133,6 @@ def casimir_force_1d(cavity_width: float) -> float:
     float
         Casimir force (attractive, negative).
     """
-    return -PI / (24.0 * cavity_width**2)
+    if cavity_width <= 0.0:
+        raise ValueError("cavity_width must be positive")
+    return -_casimir_coefficient_1d(boundary) / cavity_width**2

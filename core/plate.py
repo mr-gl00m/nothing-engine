@@ -1,5 +1,5 @@
 """
-DynamicalPlate — the mechanically free oscillating plate.
+DynamicalPlate: the mechanically free oscillating plate.
 
 Tracks position q(t), velocity q̇(t), and applies forces.
 The plate is the right boundary of the Casimir cavity.

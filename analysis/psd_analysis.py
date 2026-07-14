@@ -48,7 +48,7 @@ def find_post_ringdown_start(t: NDArray, e_plate: NDArray,
 
     Returns
     -------
-    float — time of post-ringdown onset
+    float: time of post-ringdown onset
     """
     threshold = frac * e_plate[0]
     # Threshold the decay ENVELOPE (largest remaining value), not the instantaneous
@@ -80,7 +80,7 @@ def select_post_ringdown_window(t: NDArray, v: NDArray,
 
     Returns
     -------
-    t_win, v_win — windowed arrays
+    t_win, v_win: windowed arrays
     """
     mask = (t >= t_start) & (t <= t_start + window_duration)
     if np.sum(mask) < 64:
@@ -166,7 +166,7 @@ def fdt_prediction_T0(freqs: NDArray, mass: float,
     In natural units (hbar=1):
         S_vv(f) = (1/M) * gamma / [(2*pi*f)^2 + gamma^2]  (Lorentzian)
 
-    This is a rough approximation — the actual chi depends on the
+    This is a rough approximation: the actual chi depends on the
     full plate-field coupled response. See EXECUTION_PLAN.md gap #5.
 
     Parameters
@@ -177,7 +177,7 @@ def fdt_prediction_T0(freqs: NDArray, mass: float,
 
     Returns
     -------
-    NDArray — predicted PSD
+    NDArray: predicted PSD
     """
     omega = 2.0 * np.pi * freqs
     # Avoid division by zero at f=0

@@ -1,16 +1,13 @@
-"""
-Stress-energy flux T₀₁ integration at boundaries.
+"""Design note for a future open-boundary flux implementation.
 
-For open systems, radiated energy is measured via direct
-time-integration of the stress-energy flux:
+No production code in this module computes flux, and the current solver has no
+open boundary. A future scattering or absorbing-boundary model should measure
+radiated energy by direct time integration of the stress-energy flux:
 
     E_radiated(t) = ∫₀ᵗ T₀₁(x_boundary, t') dt'
 
 where T₀₁(x,t) = -∂ₜφ · ∂ₓφ
 
-This mirrors the Poynting vector approach and maintains
-machine-precision accuracy for the energy audit.
-
-IMPORTANT: Do NOT compute radiated energy by summing field
-energy in the outer region.
+Computing this quantity requires spatial field derivatives that the current
+diagonal oscillator state does not provide.
 """

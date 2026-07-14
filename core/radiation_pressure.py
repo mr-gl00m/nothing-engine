@@ -1,31 +1,15 @@
-"""
-Field -> plate force computation (Track B).
+"""Field force calculations for the diagonal mode approximation.
 
-Energy-conserving force in the mode-function representation:
-
-    F_field = sum_n (n^2 * pi^2 / a^3) * |f_n|^2
-
-where a = q - x_L is the cavity width and |f_n|^2 = u_n^2 + v_n^2.
-
-Energy conservation proof:
-    E_field = sum_n 0.5 * (|f_dot_n|^2 + omega_n^2 * |f_n|^2)
-    dE_field/dt = sum_n omega_n * omega_dot_n * |f_n|^2
-                = -v * sum_n (n^2 * pi^2 / a^3) * |f_n|^2
-                = -v * F_field
-
-    Combined with dE_plate/dt = v * F_total, total energy is conserved.
-
-At t=0 (vacuum): reproduces Casimir force -pi/(24a^2) via zeta
-regularization of sum_n n.
-
-NOTE: The architecture's formula F = sum (n*pi/a^2)(|beta_n|^2 + 1/2)
-is correct in Bogoliubov canonical variables but not energy-conserving
-in the mode-function (f, f_dot) representation. We use the mode-function
-formula which is provably consistent.
+The raw finite oscillator force is the negative derivative of the raw mode
+Hamiltonian. The reported physical force subtracts the matching finite vacuum
+term and restores the analytic static Casimir force. The same decomposition is
+used in core.energy, so the continuous reduced equations conserve total energy.
 """
 
 import numpy as np
 from numpy.typing import NDArray
+
+from . import constants
 
 PI = np.pi
 
@@ -67,6 +51,28 @@ def field_force_track_b_from_fsq(f_sq: NDArray, cavity_width: float,
     return float(np.dot(ns_pi_sq, f_sq) / cavity_width**3)
 
 
+def renormalized_field_force(mode_state: NDArray, n_modes: int,
+                             cavity_width: float,
+                             ns_pi_sq_g: NDArray,
+                             ns_pi: NDArray,
+                             g_n: NDArray,
+                             boundary: str = "closed",
+                             degeneracy: int | None = None) -> float:
+    """Return excitation back reaction plus the static Casimir force."""
+    if cavity_width <= 0.0:
+        raise ValueError("cavity_width must be positive")
+    if degeneracy is None:
+        degeneracy = constants.mode_degeneracy_1d(boundary)
+    idx = 4 * n_modes
+    f_sq = mode_state[0:idx:4] ** 2 + mode_state[2:idx:4] ** 2
+    excitation = float(np.sum(
+        ns_pi_sq_g * f_sq / cavity_width**3
+        - 0.5 * ns_pi * np.sqrt(g_n) / cavity_width**2
+    ))
+    return (degeneracy * excitation
+            + constants.casimir_force_1d(cavity_width, boundary))
+
+
 def static_casimir_force_truncated(n_modes: int, cavity_width: float) -> float:
     """Truncated (unregularized) static Casimir force from N modes.
 
@@ -91,14 +97,16 @@ def static_casimir_force_truncated(n_modes: int, cavity_width: float) -> float:
     return PI * n_modes * (n_modes + 1) / (4.0 * cavity_width**2)
 
 
-def static_casimir_force_regularized(cavity_width: float) -> float:
-    """Zeta-regularized Casimir force: -pi/(24*a^2).
+def static_casimir_force_regularized(cavity_width: float,
+                                     boundary: str = "closed") -> float:
+    """Regularized static force for a supported ideal scalar field.
 
-    Uses zeta(-1) = -1/12: sum_{n=1}^{inf} n = -1/12 (Ramanujan/zeta).
+    For the closed interval this is -pi/(24*a^2). For the periodic circle it
+    is -pi/(6*L^2).
 
     Returns
     -------
     float
         Physical Casimir force (negative = attractive).
     """
-    return -PI / (24.0 * cavity_width**2)
+    return constants.casimir_force_1d(cavity_width, boundary)

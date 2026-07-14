@@ -1,8 +1,7 @@
-"""
-Time-dependent Bogoliubov ODE evolution (Track B).
+"""Finite dimensional diagonal mode model with mechanical back reaction.
 
-Evolves complex mode functions f_n(t) = u_n(t) + i*v_n(t) coupled
-to the dynamical plate motion. Each mode satisfies:
+The engine evolves independent complex parametric oscillators coupled to one
+mechanical coordinate. Each stored mode satisfies:
 
     f_n'' + omega_n^2(q(t)) * f_n = 0
 
@@ -11,7 +10,13 @@ frequency. The plate obeys:
 
     M * q'' = -k*(q - q_eq) + F_field
 
-with F_field = sum_n (n^2 * pi^2 / a^3) * |f_n|^2 (energy-conserving).
+The field force contains the excitation back reaction and the analytic static
+Casimir force. Finite oscillator zero point terms are subtracted consistently
+from both energy and force.
+
+This is a reduced instantaneous frequency model. A moving cavity field also has
+velocity dependent intermode couplings. Those Law Hamiltonian terms are absent,
+so this module is unsuitable for quantitative moving mirror predictions.
 
 State vector layout (4*N + 2 real variables):
     y[0:4N:4]   = u_n       (mode real parts)
@@ -30,24 +35,22 @@ from scipy.integrate import solve_ivp, OdeSolution
 from dataclasses import dataclass, field as dataclass_field
 from typing import Optional, Callable
 
+from . import constants
 from . import mode_space
 from . import energy as energy_mod
 from . import energy_audit as audit_mod
-from . import radiation_pressure as rp
 
 PI = np.pi
 
 
 @dataclass
 class SimulationConfig:
-    """Configuration for a Track B simulation run.
+    """Configuration for a reduced mode simulation.
 
     Boundary types:
-        "closed"   — Dirichlet walls, standing waves: omega_n = n*pi/a
-        "periodic" — Ring topology, traveling waves: omega_n = 2*n*pi/L
-                     The plate is inside a ring of circumference L = q0.
-                     Photons emitted from one side circulate and return
-                     from the other side, creating collective memory.
+        "closed": Dirichlet interval with omega_n = n*pi/a.
+        "periodic": Compact scalar circle with omega_n = 2*n*pi/L and
+                    two real modes for each positive n.
     """
 
     # Physics
@@ -59,9 +62,11 @@ class SimulationConfig:
     x_left: float = 0.0
     boundary: str = "closed"  # "closed" or "periodic"
 
-    # UV regularization: plate thickness form factor
-    # n_cutoff = a0 / plate_thickness. Use np.inf to disable.
-    plate_thickness: float = 0.0  # 0 = auto (a0/100)
+    # Phenomenological spectral weight. Zero disables it and gives the ideal
+    # scalar spectrum. Positive values set n_cutoff = a0/plate_thickness.
+    # shortcut: this reduced weight is useful for sensitivity studies only;
+    # upgrade with a scattering model built from reflection amplitudes.
+    plate_thickness: float = 0.0
     cutoff_shape: str = "sigmoid"  # "sigmoid" or "gaussian"
 
     # Integrator
@@ -79,15 +84,21 @@ class SimulationConfig:
 
     def __post_init__(self):
         """Pre-compute constant arrays for the RHS hot path."""
+        if self.n_modes < 1:
+            raise ValueError("n_modes must be positive")
+        if self.plate_mass <= 0.0:
+            raise ValueError("plate_mass must be positive")
+        if self.boundary not in {"closed", "periodic"}:
+            raise ValueError(f"Unsupported boundary condition: {self.boundary!r}")
+        if self.plate_thickness < 0.0:
+            raise ValueError("plate_thickness cannot be negative")
+
         ns = np.arange(1, self.n_modes + 1, dtype=np.float64)
         self.ns = ns
 
         # Mode frequency coefficients depend on boundary type
         if self.boundary == "periodic":
-            # Traveling waves on a ring: omega_n = 2*n*pi / L
-            # The factor of 2 vs Dirichlet comes from periodic BCs
-            # requiring integer wavelengths (lambda = L/n) vs half-integer
-            # (lambda = 2a/n for standing waves).
+            # A real periodic field has cosine and sine modes for each n > 0.
             self.ns_pi = 2.0 * ns * PI
             self.ns_pi_sq = (2.0 * ns * PI) ** 2
         else:
@@ -95,13 +106,16 @@ class SimulationConfig:
             self.ns_pi = ns * PI
             self.ns_pi_sq = (ns * PI) ** 2
 
+        self.mode_degeneracy = constants.mode_degeneracy_1d(self.boundary)
+
         self.q_eq = self.q0
 
-        # Form factor for UV regularization
+        # Phenomenological frequency weight, disabled by default.
         a0 = self.q0 - self.x_left
-        if self.plate_thickness <= 0:
-            # Auto: delta = a0/100, so n_cutoff = 100
-            self.n_cutoff = 100.0
+        if a0 <= 0.0:
+            raise ValueError("q0 must be greater than x_left")
+        if self.plate_thickness == 0.0:
+            self.n_cutoff = np.inf
         else:
             self.n_cutoff = a0 / self.plate_thickness
         self.g_n = mode_space.form_factor(self.n_modes, self.n_cutoff, self.cutoff_shape)
@@ -154,11 +168,13 @@ class SimulationResult:
         return self.y[:idx, i]
 
     def particle_number_at(self, i: int) -> NDArray:
-        """Per-mode particle number at time index i. Shape (N,)."""
+        """Occupation per stored mode family, including degeneracy."""
         cfg = self._cfg
         ms = self.mode_state_at(i)
         a = self.y[4 * self.n_modes, i] - cfg.x_left
-        return mode_space.particle_number(ms, self.n_modes, a, cfg.g_n, cfg.ns_pi)
+        return cfg.mode_degeneracy * mode_space.particle_number(
+            ms, self.n_modes, a, cfg.g_n, cfg.ns_pi,
+        )
 
     def total_particle_number_at(self, i: int) -> float:
         return float(np.sum(self.particle_number_at(i)))
@@ -176,6 +192,7 @@ class SimulationResult:
             cfg.plate_mass, v,
             cfg.spring_k, q, cfg.q_eq,
             cfg.g_n, cfg.ns_pi,
+            cfg.boundary, cfg.mode_degeneracy,
         )
 
 
@@ -230,11 +247,13 @@ def make_rhs(cfg: SimulationConfig) -> Callable:
     x_L = cfg.x_left
     ns_pi_sq_g = cfg.ns_pi_sq_g  # shape (N,): g_n * n^2 * pi^2
 
-    # Static vacuum force with form factor (boundary-aware):
+    degeneracy = cfg.mode_degeneracy
+
+    # Finite vacuum counterterm for the stored oscillators:
     # F_vac = sum_n ns_pi_sq_g[n] / a^3 * |f_n_vac|^2
     #       = sum_n ns_pi_sq_g[n] / a^3 * a/(2*ns_pi[n]*sqrt(g_n))
     #       = (1/(2*a^2)) * sum_n ns_pi[n] * sqrt(g_n)
-    _vac_force_coeff = 0.5 * float(np.dot(cfg.ns_pi, np.sqrt(cfg.g_n)))
+    _vac_force_coeffs = 0.5 * cfg.ns_pi * np.sqrt(cfg.g_n)
 
     call_count = [0]
 
@@ -263,14 +282,17 @@ def make_rhs(cfg: SimulationConfig) -> Callable:
         dydt[2:idx:4] = v_dot
         dydt[3:idx:4] = -omega_sq * v
 
-        # -- Renormalized field force on plate --
+        # -- Renormalized field force on the mechanical coordinate --
         # F_raw = sum g_n * (n^2 * pi^2 / a^3) * |f_n|^2
         # F_vac = sum g_n * n * pi / (2 * a^2)   [static vacuum with form factor]
         # F_ren = F_raw - F_vac
         f_sq = u * u + v * v  # |f_n|^2, shape (N,)
-        F_raw = np.dot(ns_pi_sq_g, f_sq) / (a * a * a)
-        F_vac = _vac_force_coeff * inv_a_sq
-        F_field = F_raw - F_vac
+        F_excitation = degeneracy * float(np.sum(
+            ns_pi_sq_g * f_sq / (a * a * a)
+            - _vac_force_coeffs * inv_a_sq
+        ))
+        F_casimir = constants.casimir_force_1d(a, cfg.boundary)
+        F_field = F_excitation + F_casimir
 
         # -- Plate ODE --
         dydt[idx] = v_plate
@@ -287,8 +309,8 @@ def make_prescribed_rhs(cfg: SimulationConfig,
                         v_func: Callable[[float], float]) -> Callable:
     """Build RHS with externally prescribed plate motion.
 
-    Used for validation Gate 4.2 (dynamic Casimir effect with known
-    analytical solution). The plate DOFs are overridden; only mode
+    Used for validation Gate 4.2 against the diagonal parametric oscillator
+    solution. The plate DOFs are overridden; only mode
     ODEs evolve dynamically.
 
     Parameters
@@ -363,7 +385,7 @@ def _make_cavity_collapse_event(cfg: SimulationConfig):
 def run_simulation(cfg: SimulationConfig,
                    prescribed_motion: Optional[tuple[Callable, Callable]] = None,
                    extra_events: Optional[list] = None) -> SimulationResult:
-    """Run a full Track B simulation.
+    """Run the reduced diagonal mode simulation.
 
     Parameters
     ----------
